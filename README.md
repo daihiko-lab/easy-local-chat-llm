@@ -1,47 +1,95 @@
 # Easy Local Chat LLM
 
-ローカルLLM bot機能を搭載したチャットシステム
+🤖 **AIアシスタント搭載のローカルチャットシステム**
 
-## 元プロジェクト
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/python-3.9+-green.svg)](https://www.python.org/)
+[![Ollama](https://img.shields.io/badge/ollama-required-orange.svg)](https://ollama.ai/)
 
-このプロジェクトは [easy-local-chat](https://github.com/yamanori99/easy-local-chat) のフォークです。
+WebSocketによるリアルタイム通信と、Ollama（Gemma3）を使ったローカルLLMボット機能を備えたチャットシステムです。研究用途に最適なデータ保存・エクスポート機能も搭載しています。
 
-## 追加機能
+> このプロジェクトは [easy-local-chat](https://github.com/yamanori99/easy-local-chat) をベースに開発されています。
 
-- 🤖 ローカルLLM botの統合
-- （追加予定の機能をここに記載）
+## ✨ 主な機能
 
----
-(以下の文章はフォーク先から）
-
-# ローカルチャットシステム
-
-シンプルで使いやすいローカルチャットシステムです。WebSocketを使用したリアルタイムコミュニケーションを実現します。
-
-## 機能概要
-- リアルタイムチャット機能
-- 複数ユーザー同時接続対応
+### 💬 チャット機能
+- リアルタイムチャット（WebSocket）
+- 1対1チャット（ユーザー1人 + ボット）
 - 自動再接続機能
 - レスポンシブデザイン
-- システムメッセージ表示
-- **📊 セッション・メッセージデータ保存機能（研究用）**
-- **📈 管理画面でのデータ可視化・エクスポート**
-- **💾 JSON/CSV形式でのデータエクスポート**
 
-## 開発環境
+### 🤖 AIボット機能
+- ローカルLLM（Gemma3）による自動応答
+- マンツーマンチャット対応
+- 会話履歴の保持（最新100件、コンテキスト理解）
+- 視覚的に区別しやすい専用UI
 
-M4 Mac mini (16GB / 256GB) / macOS Tahoe 26.0.1 / Python 3.14.0
+### 📊 研究用機能
+- セッション・メッセージの自動保存
+- タイムスタンプ付きデータディレクトリ管理
+- 実験条件管理機能
+- 実験条件のランダム割り当て
+- 管理画面でのデータ可視化
+- JSON/CSV形式でのエクスポート
+- API経由でのデータ取得
 
 ## 必要条件
-- Python 3.9以上（開発環境: 3.14.0）
-- pip（Pythonパッケージマネージャー）
-- モダンブラウザ（Chrome, Firefox, Safari, Edge等）
 
-**重要**: macOSやLinuxの最新版では、システムPythonの保護により直接パッケージのインストールができない場合があります。必ず仮想環境を使用することを推奨します。
+- **Python 3.9以上**（開発: 3.14.0）
+- **Ollama**（LLMボット機能用）
+- モダンブラウザ
 
-## クイックスタート
+**開発環境**: M4 Mac mini (16GB / 256GB) / macOS Tahoe 26.0.1
 
-### 1. インストール
+> ⚠️ macOS/Linuxでは仮想環境の使用を推奨します
+
+## 📖 ドキュメント
+
+- **[CHANGELOG.md](CHANGELOG.md)** - 変更履歴
+- **[deployment/README.md](deployment/README.md)** - サーバー起動スクリプト
+- **API**: `http://localhost:8000/docs` （起動後）
+
+## 🚀 クイックスタート
+
+### 1. Ollamaのセットアップ
+
+> ⚠️ **重要**: Ollamaは**2つのコンポーネント**で構成されています
+> 1. **Ollamaサービス**（本体） - 以下でインストール
+> 2. **ollama Pythonパッケージ** - `pip install`で自動インストール
+
+**OS別インストール:**
+
+```bash
+# macOS
+brew install ollama
+
+# Linux
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Windows
+# https://ollama.ai/ からインストーラーをダウンロード
+```
+
+**サービスを起動:**
+```bash
+ollama serve &
+# 💡 別ターミナルで実行。バックグラウンドで動作し続けます
+```
+
+**モデルをダウンロード:**
+```bash
+ollama pull gemma3:4b
+```
+
+**利用可能なモデル:**
+
+| モデル | サイズ | メモリ | 速度 | 精度 | 用途 |
+|--------|--------|--------|------|------|------|
+| `gemma3:1b` | 815MB | 4GB | ⚡⚡⚡ | ⭐⭐⭐ | 軽量・高速 |
+| `gemma3:4b` | 3.3GB | 8GB | ⚡⚡ | ⭐⭐⭐⭐ | バランス型（デフォルト）🎯 |
+| `gemma3:12b` | 8.1GB | 16GB | ⚡ | ⭐⭐⭐⭐⭐ | 高性能 |
+
+### 2. プロジェクトのインストール
 ```bash
 # リポジトリのクローン
 git clone https://github.com/yamanori99/easy-local-chat.git
@@ -60,288 +108,221 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. サーバーの起動
-
-#### 方法1: 起動スクリプトを使う（推奨）
-
-簡単に起動できるスクリプトを用意しています：
+### 3. サーバーの起動
 
 ```bash
-# サーバーを起動
-./deployment/start_server.sh
-
-# または、開発モード（自動リロード有効）
+# 起動スクリプトを使う（推奨）
 ./deployment/start_server_dev.sh
 
-# サーバーを停止
-./deployment/stop_server.sh
-
-# サーバーの状態確認
-./deployment/server_status.sh
-```
-
-詳細は `deployment/README.md` を参照してください。
-
-#### 方法2: 直接uvicornコマンドで起動
-
-```bash
+# または直接起動
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-初回起動時に管理者パスワードの設定を求められます。
+初回起動時に管理者アカウント（ユーザー名とパスワード）を設定します。
 
-### 3. セッションの作成（初回必須）
+### 4. 使用開始
 
-**管理画面にアクセス**：
+1. ブラウザで `http://localhost:8000` にアクセス
+   - 自動的に `http://localhost:8000/YYYYMMDD_HHMMSS/admin` にリダイレクトされます
+2. **管理画面**で実験条件を作成
+3. **ログイン画面**でユーザー名を入力
+4. メッセージを送信すると、**ボットが自動応答**します！🤖
+
+**テストメッセージ例:**
 ```
-http://localhost:8000/admin
+こんにちは！あなたは誰ですか？
 ```
-
-1. 設定した管理者パスワードでログイン
-2. 「Create New Session」ボタンをクリック
-3. セッションが作成されます
-
-### 4. チャット画面へのアクセス
-
-セッション作成後、参加者は以下のURLにアクセス：
 ```
-http://localhost:8000
+Pythonでフィボナッチ数列を計算するコードを書いてください
 ```
 
-### 5. ネットワークアクセス
-他のデバイスからアクセスする場合：
-
-1. **IPアドレスの確認**
-   ```bash
-   ifconfig | grep "inet " | grep -v 127.0.0.1
-   ```
-
-2. **他のデバイスからのアクセス**
-   ```
-   http://[あなたのIPアドレス]:8000
-   例: http://***.***.***.***:8000
-   ```
-
-3. **ファイアウォール設定**
-   - macOS: システム環境設定 > セキュリティとプライバシー > ファイアウォール
-   - Windows: Windows Defender ファイアウォール
-   - Linux: ufw status でファイアウォール状態を確認
-
-## 📊 データ保存機能（研究用）
-
-### セッション管理
-- **自動セッション作成**: サーバー起動時に自動的に新しいセッションが作成されます
-- **セッションID**: タイムスタンプベースで一意のIDが生成されます（例: `session_20251029_143052`）
-- **参加者追跡**: 各セッションで誰が参加したかを記録
-- **メッセージカウント**: セッションごとの総メッセージ数を追跡
-
-### データ保存
-全てのメッセージは以下の情報とともに自動保存されます：
-- メッセージID（一意）
-- セッションID
-- クライアントID（ユーザー名）
-- メッセージタイプ（message/system）
-- メッセージ内容
-- タイムスタンプ
-- メタデータ（文字数、単語数など）
-
-### 管理画面（/admin）
-管理画面では以下の操作が可能です：
-- **現在のセッション情報表示**: アクティブなセッションの統計をリアルタイム表示
-- **全セッション履歴**: 過去のセッション一覧を確認
-- **データエクスポート**: JSON/CSV形式でデータをダウンロード
-  - `messages.json`: 全メッセージデータ
-  - `messages.csv`: CSV形式のメッセージ一覧
-  - `session_summary.json`: セッションサマリー
-- **セッション管理**: 新規セッション作成、セッション終了
+## 📊 研究用データ保存
 
 ### データ構造
+システム起動ごとにタイムスタンプ付きディレクトリが自動作成されます：
+
 ```
 data/
-├── sessions/          # セッション情報
-│   └── session_YYYYMMDD_HHMMSS.json
-└── messages/          # メッセージデータ
-    └── session_YYYYMMDD_HHMMSS.json
-
-exports/              # エクスポートされたファイル
-├── messages_session_xxx_YYYYMMDD_HHMMSS.csv
-├── messages_session_xxx_YYYYMMDD_HHMMSS.json
-└── session_summary_session_xxx_YYYYMMDD_HHMMSS.json
+└── 20241029_143022/         # 起動時刻のタイムスタンプ（再利用）
+    ├── experiments/         # 実験グループ情報
+    ├── conditions/          # 実験条件設定
+    ├── sessions/            # セッション情報
+    └── messages/            # メッセージデータ（ボット応答含む）
 ```
 
-### API エンドポイント
-研究用に以下のAPIエンドポイントを利用できます：
-- `GET /api/sessions`: 全セッション取得
-- `GET /api/sessions/{session_id}`: 特定のセッション情報
-- `GET /api/sessions/{session_id}/messages`: セッションのメッセージ取得
-- `GET /api/sessions/{session_id}/statistics`: セッション統計
-- `GET /api/sessions/current/info`: 現在のセッション情報
-- `POST /api/sessions/{session_id}/export?format=json|csv`: データエクスポート
-- `POST /api/sessions/{session_id}/end`: セッション終了
-- `POST /api/sessions/new`: 新規セッション作成
+### 利用方法
+- **管理画面**: `http://localhost:8000` → 自動リダイレクト
+- **APIドキュメント**: `http://localhost:8000/docs`
+- **データエクスポート**: 管理画面から JSON/CSV でダウンロード
 
-## 詳細な使用方法
+### エクスポート手順
+1. `http://localhost:8000` にアクセス（管理画面に自動リダイレクト）
+2. セッションを選択
+3. 「Export」ボタンをクリック
+4. JSON/CSV形式で保存
 
-### ログイン機能
-- **ログイン方法**
-  - 初回アクセス時にログイン画面が表示
-  - クライアントIDを入力して入室
-  - 一度入力したIDは自動的に保存（ブラウザセッション中）
+### 実験条件管理機能
+管理画面から実験条件を作成できます：
 
-- **ユーザー識別**
-  - 各ユーザーに固有の色を自動割り当て
-  - メッセージにユーザー名とカラーコードを表示
-  - システムメッセージでユーザーの入退室を通知
+**基本設定:**
+- ボットモデル（gemma3:1b, 4b, 12b など）
+- システムプロンプト
+- 自動セッション作成
 
-- **セキュリティ**
-  - クライアントIDの重複チェック
-  - 不正なIDの入力防止（文字数制限、使用可能文字の制限）
-  - WebSocket接続の認証確認
+**実験設定:**
+- 実験条件名
+- ランダム割り当て重み
+- 条件ごとに異なるプロンプトやモデルを設定可能
 
-### チャット機能
-- **メッセージ送信**
-  - テキストボックスに入力
-  - 送信ボタンまたはEnterキーで送信
-- **メッセージ表示**
-  - 自分のメッセージ：右側
-  - 他のユーザーのメッセージ：左側
-  - システムメッセージ：中央
-  - すべてのメッセージにタイムスタンプ付き
+**使用例（心理学実験）:**
+```
+テンプレートA: 条件A（共感的な応答）- 重み 1
+テンプレートB: 条件B（中立的な応答）- 重み 1
+テンプレートC: 統制群（最小限の応答）- 重み 1
+→ ユーザーログイン時に自動的にいずれかの条件に割り当て
+```
 
-### システム機能
-- **自動再接続**
-  - 接続が切れた場合に自動的に再接続
-  - 接続状態をヘッダーに表示
-- **マルチユーザー対応**
-  - 複数ブラウザウィンドウでの同時接続可能
-  - ユーザー参加/退出の通知
+### ボットメッセージの識別
 
-## セキュリティ設定
+エクスポートされたデータでは、ボットメッセージは`message_type: "bot"`として記録されています：
 
-### クライアントID制限
-- 最小文字数: 3文字
-- 最大文字数: 20文字
-- 使用可能文字: 英数字、アンダースコア(_)、ハイフン(-)
-- 予約語の使用禁止（admin, system等）
+```json
+{
+  "message_id": "msg_abc123",
+  "session_id": "session_20251029_143052",
+  "client_id": "bot",
+  "message_type": "bot",
+  "content": "こんにちは！私はAIアシスタントです。",
+  "timestamp": "2025-10-29T14:30:52"
+}
+```
 
-### 接続制限
-- 同一IPアドレスからの最大接続数: 5
-- 接続タイムアウト: 60秒
-- 再接続試行回数: 3回
+## ⚙️ カスタマイズ
 
-### データ保護
-- メッセージの一時保存のみ（永続化なし）
-- クライアント情報の暗号化
-- セッション管理によるセキュリティ確保
+### モデルの変更
 
-## 設定のカスタマイズ
+`src/main.py`の43行目を編集：
+```python
+# 軽量モデル
+bot_manager = BotManager(model="gemma3:1b", bot_client_id="bot")
 
-### サーバー設定
+# デフォルト（バランス型）
+bot_manager = BotManager(model="gemma3:4b", bot_client_id="bot")
+
+# 高性能モデル
+bot_manager = BotManager(model="gemma3:12b", bot_client_id="bot")
+```
+
+### システムプロンプトの変更
+
+`src/main.py`の`startup_event`関数内に追加：
+```python
+@app.on_event("startup")
+async def startup_event():
+    # カスタムプロンプトを設定
+    bot_manager.set_system_prompt(
+        "あなたは親切な日本語の先生です。日本語学習者の質問に丁寧に答えてください。"
+    )
+    # ... 既存のコード
+```
+
+### ボット名の変更
+
+`src/static/js/chat.js`の272行目を編集：
+```javascript
+if (isBot) {
+    clientIdSpan.textContent = '🧑‍🏫 日本語先生';  // カスタマイズ
+    clientIdSpan.style.color = COLOR_PRESETS['bot'];
+    clientIdSpan.style.fontWeight = 'bold';
+}
+```
+
+### 管理者アカウントの変更
+
+**初回起動時:**
+- 対話式で設定
+- または環境変数: `ADMIN_USERNAME`, `ADMIN_PASSWORD`
+
+**変更方法:**
 ```bash
-# ポート番号の変更
-uvicorn src.main:app --port 3000
-
-# ホストの制限
-uvicorn src.main:app --host 127.0.0.1
-
-# SSL/TLS対応（開発環境）
-uvicorn src.main:app --ssl-keyfile=./key.pem --ssl-certfile=./cert.pem
+# data/admin_credentials.json を削除して再起動
+rm data/admin_credentials.json
+./deployment/start_server_dev.sh
 ```
 
-### クライアント設定
-- ブラウザのローカルストレージでユーザー設定を保存
-- カスタムテーマの選択（ライト/ダーク）
-- メッセージ表示設定のカスタマイズ
+## 🔧 トラブルシューティング
 
-## トラブルシューティング
+### ボットが応答しない
 
-### 一般的な問題
-1. **接続エラー**
-   - ポート8000の使用状況を確認
-   - ファイアウォール設定の確認
-   - `netstat -ano | grep 8000` でポート状態確認
+**確認事項:**
+```bash
+# 1. Ollamaサービスが起動しているか
+ps aux | grep ollama
 
-2. **表示の問題**
-   - ブラウザのキャッシュをクリア
-   - JavaScript有効化の確認
-   - 開発者ツール（F12）でエラーを確認
+# 2. モデルがダウンロードされているか
+ollama list
 
-3. **仮想環境関連の問題**
-   - **externally-managed-environment エラー**
-     ```bash
-     # エラーメッセージが表示された場合は仮想環境を使用
-     python3 -m venv venv
-     source venv/bin/activate  # macOS/Linux
-     .\venv\Scripts\activate   # Windows
-     pip install -r requirements.txt
-     ```
-   
-   - **pip コマンドが見つからない場合**
-     ```bash
-     python3 -m pip install -r requirements.txt
-     ```
-
-4. **ネットワークアクセスの問題**
-   - 他のデバイスからアクセスできない場合：
-     - 同じWiFi/LANネットワークに接続されているか確認
-     - ルーターのゲスト接続分離設定を確認
-     - IPアドレスが正しいか確認
-     - ポート8000がブロックされていないか確認
-
-## 開発者向け情報
-
-### プロジェクト構造
-```
-easy-local-chat/
-├── README.md
-├── requirements.txt
-├── data/                    # データ保存ディレクトリ（自動生成）
-│   ├── sessions/           # セッションデータ
-│   └── messages/           # メッセージデータ
-├── exports/                 # エクスポートファイル（自動生成）
-└── src/
-    ├── main.py             # サーバーサイドロジック
-    ├── models/             # データモデル
-    │   ├── session.py
-    │   └── message.py
-    ├── managers/           # データ管理
-    │   ├── session_manager.py
-    │   └── message_store.py
-    ├── exporters/          # データエクスポート
-    │   └── data_exporter.py
-    ├── static/             # 静的ファイル
-    │   ├── css/
-    │   ├── js/
-    │   └── images/
-    └── templates/          # HTMLテンプレート
-        ├── login.html
-        ├── chat.html
-        ├── admin.html
-        ├── admin_login.html
-        └── viewer.html
+# 3. サーバーログを確認
+# [BotManager] Error: ... のようなエラーがないか確認
 ```
 
-### 使用技術
-- **バックエンド**
-  - FastAPI (Pythonフレームワーク)
-  - WebSocket (リアルタイム通信)
-- **フロントエンド**
-  - HTML5
-  - CSS3
-  - JavaScript (ES6+)
-- **開発ツール**
-  - uvicorn (ASGIサーバー)
-  - Jinja2 (テンプレートエンジン)
+### 応答が遅い
 
-### デバッグ方法
-- **サーバーサイド**
-  - uvicornログの監視
-  - FastAPIのデバッグモード活用
+- より軽量なモデル（`gemma3:1b`）を使用
+- システムリソースを確認（メモリ8GB以上推奨）
+- 他のアプリケーションを終了
 
-- **クライアントサイド**
-  - 開発者ツール（F12）の使用
-  - WebSocket通信の監視
-  - コンソールログの確認
+### モデルのダウンロードに失敗
+
+```bash
+# Ollamaサービスを再起動
+killall ollama
+ollama serve &
+
+# モデルを再ダウンロード
+ollama pull gemma3:4b
+```
+
+### 会話履歴がリセットされる
+
+- セッションを終了すると会話履歴もクリアされます
+- 同じセッション内では履歴が保持されます（最新100件まで）
+
+### その他の問題
+
+| 問題 | 解決方法 |
+|------|---------|
+| 接続エラー | ポート8000の使用状況を確認 |
+| 仮想環境エラー | `python3 -m venv venv` で再作成 |
+| pip エラー | `python3 -m pip install -r requirements.txt` を実行 |
+
+## 🛠️ 技術スタック
+
+- **Backend**: FastAPI, WebSocket, Ollama
+- **Frontend**: HTML5, CSS3, JavaScript
+- **LLM**: Gemma3 (Google)
+
+```
+src/
+├── main.py              # メインサーバー
+├── managers/
+│   ├── bot_manager.py   # LLMボット管理
+│   ├── session_manager.py
+│   └── message_store.py
+├── static/              # フロントエンド
+└── templates/           # HTML
+```
+
+## 🔗 参考リンク
+
+- [Ollama公式サイト](https://ollama.ai/)
+- [Ollama モデルライブラリ](https://ollama.ai/library/gemma3)
+- [元プロジェクト](https://github.com/yamanori99/easy-local-chat)
+- [FastAPI ドキュメント](https://fastapi.tiangolo.com/)
+
+## 💬 サポート
+
+問題が解決しない場合は、GitHubのIssuesで報告してください。
 
 ## ライセンス
 

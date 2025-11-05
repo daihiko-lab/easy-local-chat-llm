@@ -1,10 +1,16 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat Room</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <!-- Highlight.js CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <!-- Highlight.js for code syntax highlighting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -21,7 +27,7 @@
                         <span class="session-label">Session:</span> 
                         <span id="session-id">{{ session_id }}</span>
                     </div>
-                    <button id="logout-btn" class="logout-btn" onclick="logout()">ログアウト</button>
+                    <button id="logout-btn" class="logout-btn" onclick="logout()">Logout</button>
                 </div>
             </div>
             <div class="chat-messages" id="messageArea"></div>
@@ -31,6 +37,13 @@
             </div>
         </div>
     </div>
+    <script>
+        // テンプレートからパラメータを埋め込む
+        window.CHAT_CONFIG = {
+            client_id: "{{ client_id }}",
+            session_id: "{{ session_id }}"
+        };
+    </script>
     <script src="{{ url_for('static', path='/js/chat.js') }}"></script>
 </body>
 </html> 

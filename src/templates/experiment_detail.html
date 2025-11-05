@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Experiment Detail - {{ experiment.name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #eee;
+        }
+        .breadcrumb {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        .breadcrumb a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+        .experiment-status {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 15px;
+        }
+        .status-planning { background: #95a5a6; color: white; }
+        .status-active { background: #27ae60; color: white; }
+        .status-paused { background: #f39c12; color: white; }
+        .status-completed { background: #3498db; color: white; }
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.8; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-secondary { background: #95a5a6; color: white; }
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.85em;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 6px;
+        }
+        .section h2 {
+            margin-top: 0;
+            font-size: 1.3em;
+            color: #333;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #3498db;
+        }
+        .stat-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: 600;
+            color: #333;
+        }
+        .stat-value.limit-set {
+            color: #e67e22;
+        }
+        .stat-value.limit-unlimited {
+            color: #999;
+        }
+        .active-session-info {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+        .condition-list {
+            display: grid;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .condition-card {
+            background: white;
+            padding: 20px;
+            border-radius: 6px;
+            border-left: 4px solid #e74c3c;
+        }
+        .condition-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 10px;
+        }
+        .condition-name {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #333;
+        }
+        .condition-meta {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 8px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 0;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.3em;
+        }
+        .modal-body {
+            padding: 20px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        .modal-footer {
+            padding: 15px 20px;
+            border-top: 1px solid #eee;
+            text-align: right;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #333;
+        }
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+        }
+        .form-group textarea {
+            resize: vertical;
+        }
+        .form-hint {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 5px;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+    </style>
+</head>
+<body data-experiment-id="{{ experiment.experiment_id }}" data-max-sessions="{% if experiment.max_concurrent_sessions %}{{ experiment.max_concurrent_sessions }}{% endif %}">
+    <div class="container">
+        <div class="breadcrumb">
+            <a href="/admin">← Back to Admin Panel</a> | 
+            <a href="javascript:void(0)" onclick="deleteExperiment()" style="color: #e74c3c;">🗑 Delete Experiment</a>
+        </div>
+
+        <div class="header">
+            <div>
+                <h1 style="margin: 0;">
+                    📊 {{ experiment.name }}
+                    <span class="experiment-status status-{{ experiment.status }}">{{ experiment.status|title }}</span>
+                </h1>
+                {% if experiment.description %}
+                <p style="color: #666; margin: 10px 0 0 0;">{{ experiment.description }}</p>
+                {% endif %}
+                {% if experiment.researcher %}
+                <p style="color: #999; font-size: 0.9em; margin: 5px 0 0 0;">👤 Researcher: {{ experiment.researcher }}</p>
+                {% endif %}
+            </div>
+            <div style="display: flex; gap: 10px;">
+                {% if experiment.status == 'planning' %}
+                <button class="btn btn-success" onclick="startExperiment()">▶ Start Experiment</button>
+                {% elif experiment.status == 'active' %}
+                <button class="btn" onclick="pauseExperiment()" style="background: #f39c12; color: white;">⏸ Pause</button>
+                <button class="btn btn-danger" onclick="endExperiment()">⏹ End Experiment</button>
+                {% elif experiment.status == 'paused' %}
+                <button class="btn btn-success" onclick="resumeExperiment()">▶ Resume</button>
+                <button class="btn btn-danger" onclick="endExperiment()">⏹ End Experiment</button>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="section">
+            <h2>📊 Statistics</h2>
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card">
+                    <div class="stat-label">Total Conditions</div>
+                    <div class="stat-value" id="totalConditions">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Participants</div>
+                    <div class="stat-value" id="totalParticipants">{{ experiment.total_participants }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Sessions</div>
+                    <div class="stat-value" id="totalSessions">{{ experiment.total_sessions }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">
+                        Concurrent Limit
+                        <button class="btn btn-small" onclick="showEditLimitModal()" style="margin-left: 10px; padding: 3px 8px; font-size: 0.85em;">✏️ Edit</button>
+                    </div>
+                    <div class="stat-value {% if experiment.max_concurrent_sessions %}limit-set{% else %}limit-unlimited{% endif %}" id="currentLimit">
+                        {% if experiment.max_concurrent_sessions %}{{ experiment.max_concurrent_sessions }}{% else %}∞{% endif %}
+                    </div>
+                    {% if experiment.status == 'active' and experiment.max_concurrent_sessions %}
+                    <div class="active-session-info" id="activeSessionCount">
+                        Loading...
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Conditions Management -->
+        <div class="section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin: 0;">📋 Experimental Conditions</h2>
+                <button class="btn btn-primary btn-small" onclick="showConditionModal(true)">+ Add Condition</button>
+            </div>
+            <div id="conditionsList" class="condition-list">
+                <p style="color: #999; text-align: center; padding: 40px;">Loading conditions...</p>
+            </div>
+        </div>
+
+        <!-- Sessions for this Experiment -->
+        <div class="section">
+            <h2>📝 Sessions</h2>
+            <div id="sessionsList">
+                <p style="color: #999; text-align: center; padding: 40px;">Loading sessions...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Limit Modal -->
+    <div id="editLimitModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>Edit Concurrent Session Limit</h2>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="editMaxSessions">Maximum Concurrent Sessions</label>
+                    <input type="number" id="editMaxSessions" min="1" placeholder="Leave empty for unlimited" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                    <div class="form-hint">⏳ Set the maximum number of participants that can be in the experiment simultaneously. Leave empty for unlimited.</div>
+                </div>
+                <div style="background: #fff3e6; padding: 12px; border-radius: 6px; margin-top: 15px; font-size: 0.9em;">
+                    💡 <strong>Current value:</strong> <span id="currentLimitValue"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeEditLimitModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="updateLimit()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Condition Modal -->
+    <div id="conditionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Condition Settings</h2>
+            </div>
+            <div class="modal-body">
+                <form id="conditionForm">
+                    <div class="form-group">
+                        <label for="conditionName">Condition Name *</label>
+                        <input type="text" id="conditionName" placeholder="e.g., Condition A, Control Group" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="conditionDescription">Description (Optional)</label>
+                        <input type="text" id="conditionDescription" placeholder="Brief description of this condition">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="botModel">Bot Model *</label>
+                        <select id="botModel" required>
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="systemPrompt">System Prompt</label>
+                        <textarea id="systemPrompt" rows="4" placeholder="e.g., You are a helpful and friendly AI assistant. Please answer user questions politely."></textarea>
+                        <div class="form-hint">This defines how the bot will behave for this condition (optional - leave empty to use default)</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeConditionModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveCondition()">Save Condition</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const experimentId = document.body.dataset.experimentId;
+        let currentEditingConditionId = null;
+        let currentMaxSessions = document.body.dataset.maxSessions ? parseInt(document.body.dataset.maxSessions) : null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadConditions();
+            loadSessions();
+            loadAvailableModels();
+        });
+        
+        function showEditLimitModal() {
+            const modal = document.getElementById('editLimitModal');
+            const input = document.getElementById('editMaxSessions');
+            const currentValue = document.getElementById('currentLimitValue');
+            
+            if (currentMaxSessions !== null) {
+                input.value = currentMaxSessions;
+                currentValue.textContent = currentMaxSessions;
+            } else {
+                input.value = '';
+                currentValue.textContent = '∞ (Unlimited)';
+            }
+            
+            modal.style.display = 'block';
+        }
+        
+        function closeEditLimitModal() {
+            document.getElementById('editLimitModal').style.display = 'none';
+        }
+        
+        async function updateLimit() {
+            const input = document.getElementById('editMaxSessions');
+            const newLimit = input.value.trim() ? parseInt(input.value) : null;
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/update_limit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ max_concurrent_sessions: newLimit })
+                });
+                
+                if (!response.ok) throw new Error('Failed to update limit');
+                
+                // 表示を更新
+                currentMaxSessions = newLimit;
+                const limitElement = document.getElementById('currentLimit');
+                
+                if (newLimit !== null) {
+                    limitElement.textContent = newLimit;
+                    limitElement.className = 'stat-value limit-set';
+                } else {
+                    limitElement.textContent = '∞';
+                    limitElement.className = 'stat-value limit-unlimited';
+                }
+                
+                alert('✅ Concurrent session limit updated successfully!');
+                closeEditLimitModal();
+                
+                // セッション情報をリロード
+                loadSessions();
+            } catch (error) {
+                alert('Failed to update limit: ' + error.message);
+            }
+        }
+
+        async function loadAvailableModels() {
+            try {
+                const response = await fetch('/api/ollama/models');
+                if (!response.ok) return;
+                
+                const data = await response.json();
+                const models = data.models || [];
+                
+                const select = document.getElementById('botModel');
+                // 最初に空のオプションを追加
+                select.innerHTML = '<option value="">-- Select a model --</option>' + 
+                    models.map(model => `<option value="${model}">${model}</option>`).join('');
+                
+                // デフォルト選択（推奨モデルがあれば、なければ空）
+                const preferredModels = ['gemma3:4b', 'gemma3:2b', 'llama3.2:3b'];
+                const availablePreferred = preferredModels.find(m => models.includes(m));
+                if (availablePreferred) {
+                    select.value = availablePreferred;
+                }
+            } catch (error) {
+                console.error('Failed to load models:', error);
+            }
+        }
+
+        async function loadConditions() {
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/conditions`);
+                if (!response.ok) throw new Error('Failed to load conditions');
+                
+                const data = await response.json();
+                const conditions = data.conditions || [];
+                
+                document.getElementById('totalConditions').textContent = conditions.length;
+                
+                const container = document.getElementById('conditionsList');
+                
+                if (conditions.length === 0) {
+                    container.innerHTML = `
+                        <p style="color: #999; text-align: center; padding: 40px;">
+                            No conditions defined yet. Click "+ Add Condition" to create one.
+                        </p>
+                    `;
+                    return;
+                }
+                
+                container.innerHTML = conditions.map(c => `
+                    <div class="condition-card">
+                        <div class="condition-header">
+                            <div style="flex: 1;">
+                                <div class="condition-name">${c.name}</div>
+                                ${c.description ? `<p style="color: #666; font-size: 0.9em; margin: 5px 0;">${c.description}</p>` : ''}
+                                <div class="condition-meta">
+                                    Model: <strong>${c.bot_model}</strong>
+                                </div>
+                                ${c.system_prompt ? `
+                                <div style="margin-top: 10px; padding: 10px; background: #f9f9f9; border-radius: 4px; border-left: 3px solid #3498db;">
+                                    <div style="font-size: 0.85em; color: #999; margin-bottom: 5px;">System Prompt:</div>
+                                    <div style="font-size: 0.9em; color: #555; white-space: pre-wrap; font-family: inherit; line-height: 1.5;">${c.system_prompt}</div>
+                                </div>` : '<div style="margin-top: 10px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 0.85em; color: #856404;">⚠️ No system prompt defined</div>'}
+                            </div>
+                            <div style="display: flex; gap: 8px; align-self: flex-start;">
+                                <button class="btn btn-small btn-primary" onclick="editCondition('${c.condition_id}')">Edit</button>
+                                <button class="btn btn-small btn-danger" onclick="deleteCondition('${c.condition_id}')">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to load conditions:', error);
+                document.getElementById('conditionsList').innerHTML = `
+                    <p style="color: #e74c3c; text-align: center; padding: 40px;">Failed to load conditions</p>
+                `;
+            }
+        }
+
+        async function loadSessions() {
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/sessions`);
+                if (!response.ok) throw new Error('Failed to load sessions');
+                
+                const data = await response.json();
+                const sessions = data.sessions || [];
+                
+                // アクティブセッション数を更新
+                const activeSessions = sessions.filter(s => s.status === 'active');
+                const activeCountElement = document.getElementById('activeSessionCount');
+                if (activeCountElement) {
+                    activeCountElement.textContent = `${activeSessions.length} active now`;
+                }
+                
+                const container = document.getElementById('sessionsList');
+                
+                if (sessions.length === 0) {
+                    container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No sessions yet</p>';
+                    return;
+                }
+                
+                container.innerHTML = `
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
+                                <th style="padding: 10px; text-align: left;">Session ID</th>
+                                <th style="padding: 10px; text-align: left;">Condition</th>
+                                <th style="padding: 10px; text-align: center;">Participants</th>
+                                <th style="padding: 10px; text-align: center;">Messages</th>
+                                <th style="padding: 10px; text-align: center;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${sessions.map(s => `
+                                <tr style="border-bottom: 1px solid #eee;">
+                                    <td style="padding: 10px;">${s.session_id.substring(0, 8)}...</td>
+                                    <td style="padding: 10px;">${s.experiment_group || 'N/A'}</td>
+                                    <td style="padding: 10px; text-align: center;">${s.participant_count}</td>
+                                    <td style="padding: 10px; text-align: center;">${s.total_messages}</td>
+                                    <td style="padding: 10px; text-align: center;">
+                                        <span style="padding: 3px 8px; border-radius: 3px; font-size: 0.85em; background: ${s.status === 'active' ? '#d4edda' : '#f8d7da'}; color: ${s.status === 'active' ? '#155724' : '#721c24'};">
+                                            ${s.status}
+                                        </span>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } catch (error) {
+                console.error('Failed to load sessions:', error);
+            }
+        }
+
+        function showConditionModal(isNew = false) {
+            if (isNew) {
+                currentEditingConditionId = null;
+                document.getElementById('conditionName').value = '';
+                document.getElementById('conditionDescription').value = '';
+                document.getElementById('systemPrompt').value = '';
+            }
+            document.getElementById('conditionModal').style.display = 'block';
+        }
+
+        function closeConditionModal() {
+            document.getElementById('conditionModal').style.display = 'none';
+        }
+
+        async function saveCondition() {
+            const conditionData = {
+                condition_id: currentEditingConditionId || `condition_${Date.now()}`,
+                name: document.getElementById('conditionName').value,
+                description: document.getElementById('conditionDescription').value,
+                bot_model: document.getElementById('botModel').value,
+                system_prompt: document.getElementById('systemPrompt').value,
+                weight: 1,  // Always equal probability
+                is_experiment: true,
+                experiment_group: document.getElementById('conditionName').value,
+                auto_create_session: true,
+                end_previous_session: false
+            };
+
+            if (!conditionData.name || !conditionData.bot_model) {
+                alert('Please fill in all required fields (Name and Bot Model)');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/conditions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(conditionData)
+                });
+
+                if (response.ok) {
+                    alert('✅ Condition saved successfully!');
+                    closeConditionModal();
+                    loadConditions();
+                } else {
+                    alert('Failed to save condition');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function editCondition(conditionId) {
+            try {
+                const response = await fetch(`/api/conditions/${conditionId}`);
+                const condition = await response.json();
+                
+                currentEditingConditionId = conditionId;
+                document.getElementById('conditionName').value = condition.name;
+                document.getElementById('conditionDescription').value = condition.description || '';
+                document.getElementById('systemPrompt').value = condition.system_prompt;
+                
+                setTimeout(() => {
+                    document.getElementById('botModel').value = condition.bot_model;
+                }, 100);
+                
+                showConditionModal();
+            } catch (error) {
+                alert('Failed to load condition: ' + error.message);
+            }
+        }
+
+        async function deleteCondition(conditionId) {
+            if (!confirm('Delete this condition? This cannot be undone.')) return;
+            
+            try {
+                const response = await fetch(`/api/conditions/${conditionId}/delete`, { method: 'DELETE' });
+                if (response.ok) {
+                    alert('Condition deleted successfully');
+                    loadConditions();
+                } else {
+                    alert('Failed to delete condition');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function startExperiment() {
+            if (!confirm('Start this experiment?')) return;
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/start`, { method: 'POST' });
+                if (response.ok) {
+                    alert('Experiment started!');
+                    location.reload();
+                } else {
+                    alert('Failed to start experiment');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function pauseExperiment() {
+            if (!confirm('Pause this experiment? New participants will not be able to join until resumed.')) return;
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/pause`, { method: 'POST' });
+                if (response.ok) {
+                    alert('Experiment paused!');
+                    location.reload();
+                } else {
+                    alert('Failed to pause experiment');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function resumeExperiment() {
+            if (!confirm('Resume this experiment?')) return;
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/resume`, { method: 'POST' });
+                if (response.ok) {
+                    alert('Experiment resumed!');
+                    location.reload();
+                } else {
+                    alert('Failed to resume experiment');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function endExperiment() {
+            if (!confirm('End this experiment? This will stop accepting new participants and cannot be undone.')) return;
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/end`, { method: 'POST' });
+                if (response.ok) {
+                    alert('Experiment ended!');
+                    location.reload();
+                } else {
+                    alert('Failed to end experiment');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function deleteExperiment() {
+            const confirmMessage = `⚠️ WARNING: This action cannot be undone!\n\nDelete this experiment?\n\nThis will permanently remove:\n- Experiment configuration\n- All conditions\n- All associated sessions and data\n\nType "DELETE" to confirm:`;
+            
+            const userInput = prompt(confirmMessage);
+            
+            if (userInput !== 'DELETE') {
+                if (userInput !== null) {
+                    alert('Deletion cancelled. You must type "DELETE" exactly to confirm.');
+                }
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/delete`, { method: 'DELETE' });
+                if (response.ok) {
+                    alert('✅ Experiment deleted successfully');
+                    window.location.href = '/admin';
+                } else {
+                    alert('Failed to delete experiment');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('conditionModal');
+            if (event.target === modal) {
+                closeConditionModal();
+            }
+        }
+    </script>
+</body>
+</html>
+

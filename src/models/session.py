@@ -26,6 +26,11 @@ class Session(BaseModel):
     require_user_password: bool = False  # ユーザーパスワード必須（True=必須、False=任意）
     disable_user_password: bool = False  # ユーザーパスワード完全無効（True=パスワードなし強制）
     
+    # 実験トラッキング
+    experiment_id: Optional[str] = None  # 所属する実験ID
+    condition_id: Optional[str] = None  # 使用された条件ID
+    experiment_group: Optional[str] = None  # 実験条件名（割り当てられた条件）
+    
     @staticmethod
     def hash_password(password: str) -> str:
         """パスワードをハッシュ化"""

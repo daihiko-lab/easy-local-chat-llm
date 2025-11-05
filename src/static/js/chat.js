@@ -41,7 +41,8 @@ function getColorFromClientId(clientId) {
 const COLOR_PRESETS = {
     'admin': 'hsl(210, 80%, 60%)',      // 管理者用の青
     'moderator': 'hsl(280, 75%, 60%)',  // モデレーター用の紫
-    'system': 'hsl(0, 0%, 50%)'         // システムメッセージ用のグレー
+    'system': 'hsl(0, 0%, 50%)',        // システムメッセージ用のグレー
+    'bot': 'hsl(150, 70%, 50%)'         // ボット用の緑
 };
 
 // クライアントIDから色を取得（プリセットがある場合はそちらを優先）
@@ -63,11 +64,11 @@ async function checkSession() {
             
             // 保存されたセッションIDと現在のセッションIDが異なる場合
             if (savedSessionId && savedSessionId !== currentSessionId) {
-                // セッションが変わったのでログアウト
-                console.log('セッションが更新されました。再ログインが必要です。');
+                // Session changed, logout
+                console.log('Session has been updated. Re-login required.');
                 localStorage.removeItem('client_id');
                 localStorage.removeItem('session_id');
-                alert('新しいセッションが開始されました。再度ログインしてください。');
+                alert('A new session has been started. Please log in again.');
                 window.location.href = '/';
                 return false;
             }
@@ -96,7 +97,16 @@ async function connect() {
     const sessionPassword = urlParams.get('session_password');
     const userPassword = urlParams.get('user_password');
 
-    // クエリパラメータにない場合はlocalStorageから取得
+    // クエリパラメータにない場合はwindow.CHAT_CONFIGから取得
+    if (!clientId && window.CHAT_CONFIG) {
+        clientId = window.CHAT_CONFIG.client_id;
+    }
+    
+    if (!sessionId && window.CHAT_CONFIG) {
+        sessionId = window.CHAT_CONFIG.session_id;
+    }
+
+    // それでもない場合はlocalStorageから取得
     if (!clientId) {
         clientId = localStorage.getItem('client_id');
     }
@@ -168,6 +178,9 @@ async function connect() {
                 }
                 window.location.href = '/';
             }, 3000);
+        } else if (data.type === 'bot') {
+            // ボットメッセージの処理
+            displayMessage(data);
         } else {
             displayMessage(data);
         }
@@ -177,6 +190,9 @@ async function connect() {
         if (event.reason === "Client ID already in use") {
             alert("This ID is already in use. Please log in with a different ID.");
             window.location.href = '/'; // ログインページに戻す
+        } else if (event.reason === "Only one user allowed") {
+            alert("Another user is currently connected. Please try again later.");
+            window.location.href = '/'; // Return to login page
         } else {
             document.getElementById('status-text').textContent = 'Offline';
             document.getElementById('status-icon').className = 'offline';
@@ -231,7 +247,13 @@ function displayMessage(data) {
         }
         messageDiv.textContent = data.message; // メッセージ内容を直接設定
     } else {
+        // ボットメッセージか判定
+        const isBot = data.type === 'bot' || data.client_id === 'bot';
+        
         messageDiv.className = `message ${data.client_id === clientId ? 'self' : 'other'}`;
+        if (isBot) {
+            messageDiv.className = 'message other bot-message';
+        }
 
         // メッセージコンテナを作成
         const messageContainer = document.createElement('div');
@@ -240,7 +262,12 @@ function displayMessage(data) {
         // アイコンを表示
         const iconDiv = document.createElement('div');
         iconDiv.className = 'message-icon';
-        iconDiv.style.backgroundColor = data.client_id === clientId ? getColorFromClientId(clientId) : getColorFromClientId(data.client_id); // 自分のメッセージには自分の色、それ以外はクライアントIDから生成
+        if (isBot) {
+            iconDiv.className = 'message-icon bot-icon';
+            iconDiv.style.backgroundColor = COLOR_PRESETS['bot'];
+        } else {
+            iconDiv.style.backgroundColor = data.client_id === clientId ? getColorFromClientId(clientId) : getColorFromClientId(data.client_id);
+        }
         const img = document.createElement('img');
         img.src = `/static/images/default_icon.png`; // アイコンのパス
         iconDiv.appendChild(img);
@@ -249,13 +276,55 @@ function displayMessage(data) {
         // メッセージテキストを表示
         const messageTextDiv = document.createElement('div');
         messageTextDiv.className = 'message-text';
+        
         // クライアントIDを表示
         const clientIdSpan = document.createElement('span');
         clientIdSpan.className = 'client-id';
-        clientIdSpan.textContent = `Client ID: ${data.client_id}`;
+        if (isBot) {
+            clientIdSpan.textContent = 'AI Assistant';
+            clientIdSpan.style.color = COLOR_PRESETS['bot'];
+            clientIdSpan.style.fontWeight = 'bold';
+        } else {
+            clientIdSpan.textContent = `Client ID: ${data.client_id}`;
+        }
         messageTextDiv.appendChild(clientIdSpan);
         messageTextDiv.appendChild(document.createElement('br')); // 改行を追加
-        messageTextDiv.appendChild(document.createTextNode(data.message)); // メッセージを追加
+        
+        // メッセージ内容を改行を保持して表示
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+        
+        // ボットメッセージの場合はMarkdownをレンダリング
+        if (isBot) {
+            // Markdownをパース
+            const renderer = new marked.Renderer();
+            
+            // コードブロックのカスタムレンダラー
+            renderer.code = function(code, language) {
+                const validLanguage = hljs.getLanguage(language) ? language : 'plaintext';
+                const highlighted = hljs.highlight(code, { language: validLanguage }).value;
+                return `<pre><code class="hljs language-${validLanguage}">${highlighted}</code></pre>`;
+            };
+            
+            // インラインコードのカスタムレンダラー
+            renderer.codespan = function(code) {
+                return `<code class="inline-code">${code}</code>`;
+            };
+            
+            marked.setOptions({
+                renderer: renderer,
+                breaks: true,  // 改行を<br>に変換
+                gfm: true,     // GitHub Flavored Markdown
+            });
+            
+            messageContent.innerHTML = marked.parse(data.message);
+        } else {
+            // ユーザーメッセージは通常通りテキストで表示
+            messageContent.style.whiteSpace = 'pre-wrap'; // 改行を保持
+            messageContent.textContent = data.message;
+        }
+        
+        messageTextDiv.appendChild(messageContent);
 
         const timestamp = document.createElement('div');
         timestamp.className = 'timestamp';

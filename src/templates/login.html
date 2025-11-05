@@ -82,328 +82,96 @@
         <div class="login-container">
             <h1>Login</h1>
             
-            <!-- Session Selection -->
-            <div class="session-selector">
-                <label>Select Session:</label>
-                <div id="session-list" class="session-list loading-sessions">
-                    Loading...
+            <!-- Connection Status Warning / Waiting Room -->
+            <div id="connection-warning" style="display: none; padding: 15px; margin-bottom: 20px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; color: #856404;">
+                <strong id="warning-title">⏳ Please Wait</strong>
+                <p id="warning-message" style="margin: 5px 0 0 0; font-size: 0.9em;"></p>
+                <div id="waiting-info" style="margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.5); border-radius: 4px; font-size: 0.9em;">
+                    <div id="session-count" style="margin-bottom: 5px;"></div>
+                    <div style="font-size: 0.85em; color: #666;">The page will automatically refresh when a slot becomes available.</div>
                 </div>
+            </div>
+            
+            <!-- Info Message -->
+            <div style="padding: 15px; margin-bottom: 20px; background: #e3f2fd; border: 2px solid #2196f3; border-radius: 8px; color: #1565c0;">
+                <strong>💬 One-on-One Chat</strong>
+                <p style="margin: 5px 0 0 0; font-size: 0.9em;">A new session will be automatically created for you upon login.</p>
             </div>
             
             <form id="login-form">
                 <label for="client-id">Client ID:</label>
-                <input type="text" id="client-id" name="client-id" required>
-                
-                <div id="use-password-container" style="margin: 15px 0;">
-                    <label style="display: flex; align-items: center; cursor: pointer;">
-                        <input type="checkbox" id="use-password" style="width: 18px; height: 18px; margin-right: 8px; cursor: pointer;">
-                        <span>Set password (Optional - uncheck to login without password)</span>
-                    </label>
-                </div>
-                
-                <div id="user-password-field" style="display: none;">
-                    <label for="user-password">User Password:</label>
-                    <input type="password" id="user-password" name="user-password" placeholder="Enter password">
-                    <small id="user-password-hint" style="display: block; margin-top: -12px; margin-bottom: 12px;"></small>
-                </div>
-                
-                <div id="session-password-field" style="display: none;">
-                    <label for="session-password">Session Password:</label>
-                    <input type="password" id="session-password" name="session-password" placeholder="Enter session password">
-                </div>
+                <input type="text" id="client-id" name="client-id" required placeholder="Enter your name">
                 
                 <button type="submit">Enter Chat Room</button>
             </form>
         </div>
     </div>
     <script>
-        let selectedSessionId = null;
-        let sessions = [];
-
         // ページ読み込み時の処理
         window.addEventListener('DOMContentLoaded', async function() {
-            // セッション一覧を読み込む
-            await loadSessions();
+            // 接続状況をチェック
+            await checkConnectionStatus();
             
-            // 保存されたクライアントIDとセッションをチェック
+            // 保存されたクライアントIDをチェック
             const savedClientId = localStorage.getItem('client_id');
-            const savedSessionId = localStorage.getItem('session_id');
-            
-            if (savedClientId && savedSessionId) {
-                // 保存されたセッションがアクティブか確認
-                const session = sessions.find(s => s.session_id === savedSessionId && s.status === 'active');
-                
-                if (session) {
-                    // パスワード確認
-                    let url = `/chat?client_id=${savedClientId}&session_id=${savedSessionId}`;
-                    let canAutoLogin = true;
-                    
-                    // セッションパスワード確認
-                    if (session.password_protected) {
-                        const savedSessionPassword = localStorage.getItem('session_password_' + savedSessionId);
-                        if (savedSessionPassword) {
-                            url += `&session_password=${encodeURIComponent(savedSessionPassword)}`;
-                        } else {
-                            canAutoLogin = false;
-                        }
-                    }
-                    
-                    // ユーザーパスワード確認
-                    const savedUserPassword = localStorage.getItem('user_password_' + savedSessionId + '_' + savedClientId);
-                    if (savedUserPassword) {
-                        url += `&user_password=${encodeURIComponent(savedUserPassword)}`;
-                    }
-                    
-                    if (canAutoLogin) {
-                        window.location.href = url;
-                        return;
-                    } else {
-                        // パスワードが保存されていない場合はログイン画面を表示
-                        localStorage.removeItem('client_id');
-                        localStorage.removeItem('session_id');
-                    }
-                } else {
-                    // セッションが終了している場合はlocalStorageをクリア
-                    localStorage.removeItem('client_id');
-                    localStorage.removeItem('session_id');
-                }
+            if (savedClientId) {
+                document.getElementById('client-id').value = savedClientId;
             }
         });
-
-        // セッション一覧を読み込む
-        async function loadSessions() {
+        
+        // 接続状況をチェック
+        async function checkConnectionStatus() {
             try {
-                const response = await fetch('/api/sessions');
-                const data = await response.json();
-                sessions = data.sessions;
-                
-                // アクティブなセッションのみフィルタ
-                const activeSessions = sessions.filter(s => s.status === 'active');
-                
-                displaySessions(activeSessions);
-                
-                // 初期選択されたセッションの設定を適用
-                if (activeSessions.length > 0) {
-                    updateFormForSession(activeSessions[0]);
-                }
-            } catch (error) {
-                console.error('Failed to load sessions:', error);
-                document.getElementById('session-list').innerHTML = 
-                    '<div style="color: #e74c3c;">Failed to load sessions</div>';
-            }
-        }
-
-        // セッション一覧を表示
-        function displaySessions(activeSessions) {
-            const container = document.getElementById('session-list');
-            
-            if (activeSessions.length === 0) {
-                container.innerHTML = '<div style="color: #999;">No active sessions</div>';
-                return;
-            }
-            
-            container.innerHTML = '';
-            
-            activeSessions.forEach((session, index) => {
-                const option = document.createElement('div');
-                option.className = 'session-option';
-                if (index === 0) {
-                    option.classList.add('selected');
-                    selectedSessionId = session.session_id;
-                }
-                
-                const createdDate = new Date(session.created_at).toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
-                
-                const lockIcon = session.password_protected ? '🔒 ' : '';
-                
-                option.innerHTML = `
-                    <input type="radio" name="session" value="${session.session_id}" ${index === 0 ? 'checked' : ''} data-password-protected="${session.password_protected}">
-                    <div class="session-info">
-                        <div class="session-id-display">${lockIcon}${session.session_id}</div>
-                        <div class="session-meta">
-                            Created: ${createdDate} | 
-                            Users: ${session.participants.length} | 
-                            Messages: ${session.total_messages}
-                            ${session.password_protected ? ' | 🔒 Protected' : ''}
-                        </div>
-                    </div>
-                `;
-                
-                option.addEventListener('click', function() {
-                    document.querySelectorAll('.session-option').forEach(opt => {
-                        opt.classList.remove('selected');
-                    });
-                    option.classList.add('selected');
-                    const radio = option.querySelector('input[type="radio"]');
-                    radio.checked = true;
-                    selectedSessionId = session.session_id;
-                    
-                    // セッション設定に応じてフォームを更新
-                    updateFormForSession(session);
-                    
-                    // クライアントIDが入力されている場合、ユーザーパスワードチェック
-                    const clientId = document.getElementById('client-id').value.trim();
-                    if (clientId) {
-                        checkUserPassword(clientId);
-                    }
-                });
-                
-                container.appendChild(option);
-            });
-        }
-        
-        function updateFormForSession(session) {
-            // セッションパスワードフィールド
-            const sessionPasswordField = document.getElementById('session-password-field');
-            const sessionPasswordInput = document.getElementById('session-password');
-            
-            if (session.password_protected) {
-                sessionPasswordField.style.display = 'block';
-                sessionPasswordInput.required = true;
-            } else {
-                sessionPasswordField.style.display = 'none';
-                sessionPasswordInput.required = false;
-                sessionPasswordInput.value = '';
-            }
-            
-            // ユーザーパスワード設定に応じてUIを変更
-            const usePasswordCheckbox = document.getElementById('use-password');
-            const userPasswordField = document.getElementById('user-password-field');
-            const userPasswordInput = document.getElementById('user-password');
-            const hint = document.getElementById('user-password-hint');
-            
-            const usePasswordContainer = document.getElementById('use-password-container');
-            
-            if (session.disable_user_password) {
-                // User password disabled - no password allowed
-                usePasswordCheckbox.checked = false;
-                usePasswordCheckbox.disabled = true;
-                usePasswordContainer.style.display = 'none';
-                userPasswordField.style.display = 'none';
-                userPasswordInput.required = false;
-                hint.textContent = 'Login without password (password disabled for this session)';
-                hint.style.color = '#27ae60';
-                hint.style.fontWeight = 'normal';
-            } else if (session.require_user_password) {
-                // User password required
-                usePasswordCheckbox.checked = true;
-                usePasswordCheckbox.disabled = true;
-                usePasswordContainer.style.display = 'block';
-                userPasswordField.style.display = 'block';
-                userPasswordInput.required = true;
-                userPasswordInput.placeholder = 'Enter password (required)';
-                hint.textContent = 'Password required by session';
-                hint.style.color = '#e74c3c';
-                hint.style.fontWeight = 'bold';
-            } else {
-                // User password optional - can login without password
-                usePasswordCheckbox.disabled = false;
-                usePasswordContainer.style.display = 'block';
-                // 初期状態のみOFFに設定（ユーザーが選択済みの場合は尊重）
-                if (!usePasswordCheckbox.checked) {
-                    userPasswordField.style.display = 'none';
-                    userPasswordInput.required = false;
-                }
-                hint.textContent = 'You can login without password';
-                hint.style.color = '#27ae60';
-                hint.style.fontWeight = 'normal';
-            }
-        }
-
-        // クライアントIDの入力でユーザーパスワードチェック
-        document.getElementById('client-id').addEventListener('blur', async function() {
-            const clientId = this.value.trim();
-            if (clientId && selectedSessionId) {
-                await checkUserPassword(clientId);
-            }
-        });
-        
-        // チェックボックスの変更でパスワード入力欄を表示/非表示
-        document.getElementById('use-password').addEventListener('change', function() {
-            const userPasswordField = document.getElementById('user-password-field');
-            const userPasswordInput = document.getElementById('user-password');
-            
-            if (this.checked) {
-                userPasswordField.style.display = 'block';
-                userPasswordInput.required = true;
-            } else {
-                userPasswordField.style.display = 'none';
-                userPasswordInput.required = false;
-                userPasswordInput.value = '';
-            }
-        });
-        
-        async function checkUserPassword(clientId) {
-            if (!selectedSessionId) return;
-            
-            const selectedSession = sessions.find(s => s.session_id === selectedSessionId);
-            if (!selectedSession) return;
-            
-            try {
-                const response = await fetch(`/api/sessions/${selectedSessionId}/check_user_password?client_id=${encodeURIComponent(clientId)}`);
+                const response = await fetch('/api/connection/status');
                 const data = await response.json();
                 
-                const usePasswordCheckbox = document.getElementById('use-password');
-                const usePasswordContainer = document.getElementById('use-password-container');
-                const userPasswordField = document.getElementById('user-password-field');
-                const userPasswordInput = document.getElementById('user-password');
-                const hint = document.getElementById('user-password-hint');
+                const warning = document.getElementById('connection-warning');
+                const warningTitle = document.getElementById('warning-title');
+                const warningMessage = document.getElementById('warning-message');
+                const waitingInfo = document.getElementById('waiting-info');
+                const sessionCount = document.getElementById('session-count');
+                const loginForm = document.getElementById('login-form');
+                const submitButton = loginForm.querySelector('button[type="submit"]');
                 
-                if (selectedSession.disable_user_password) {
-                    // User password disabled - hide everything
-                    usePasswordCheckbox.checked = false;
-                    usePasswordCheckbox.disabled = true;
-                    usePasswordContainer.style.display = 'none';
-                    userPasswordField.style.display = 'none';
-                    userPasswordInput.required = false;
-                    hint.textContent = 'Login without password (password disabled for this session)';
-                    hint.style.color = '#27ae60';
-                    hint.style.fontWeight = 'normal';
-                } else if (data.has_password) {
-                    // Existing protected ID
-                    usePasswordCheckbox.checked = true;
-                    usePasswordCheckbox.disabled = true;
-                    usePasswordContainer.style.display = 'block';
-                    userPasswordField.style.display = 'block';
-                    userPasswordInput.required = true;
-                    userPasswordInput.placeholder = 'Enter password (protected ID)';
-                    hint.textContent = 'This ID is password protected';
-                    hint.style.color = '#e74c3c';
-                    hint.style.fontWeight = 'bold';
-                } else if (selectedSession.require_user_password) {
-                    // Session requires user password
-                    usePasswordCheckbox.checked = true;
-                    usePasswordCheckbox.disabled = true;
-                    usePasswordContainer.style.display = 'block';
-                    userPasswordField.style.display = 'block';
-                    userPasswordInput.required = true;
-                    userPasswordInput.placeholder = 'Enter password (required)';
-                    hint.textContent = 'Password required by session';
-                    hint.style.color = '#e74c3c';
-                    hint.style.fontWeight = 'bold';
-                } else {
-                    // New ID or unprotected ID (optional - can login without password)
-                    usePasswordCheckbox.disabled = false;
-                    usePasswordContainer.style.display = 'block';
-                    // ユーザーの選択を尊重（既にチェックされている場合はそのまま）
-                    if (!usePasswordCheckbox.checked) {
-                        userPasswordField.style.display = 'none';
-                        userPasswordInput.required = false;
+                if (!data.is_available) {
+                    // 待機状態
+                    warning.style.display = 'block';
+                    submitButton.disabled = true;
+                    submitButton.style.opacity = '0.5';
+                    submitButton.style.cursor = 'not-allowed';
+                    submitButton.textContent = 'Please Wait...';
+                    
+                    // Disable form input
+                    document.getElementById('client-id').disabled = true;
+                    
+                    // 待機情報を表示
+                    if (data.waiting_info) {
+                        warningTitle.textContent = '⏳ Waiting Room';
+                        warningMessage.textContent = `The experiment "${data.waiting_info.experiment_name}" is currently full.`;
+                        waitingInfo.style.display = 'block';
+                        sessionCount.innerHTML = `<strong>Current Sessions:</strong> ${data.waiting_info.current_sessions} / ${data.waiting_info.max_sessions}`;
                     } else {
-                        userPasswordField.style.display = 'block';
-                        userPasswordInput.required = true;
+                        warningTitle.textContent = '⏳ Please Wait';
+                        warningMessage.textContent = data.reason || 'Another user is currently connected. Please wait.';
+                        waitingInfo.style.display = 'block';
+                        sessionCount.textContent = '';
                     }
-                    hint.textContent = 'You can login without password';
-                    hint.style.color = '#27ae60';
-                    hint.style.fontWeight = 'normal';
+                    
+                    // Recheck every 3 seconds
+                    setTimeout(checkConnectionStatus, 3000);
+                } else {
+                    // 利用可能な場合
+                    warning.style.display = 'none';
+                    submitButton.disabled = false;
+                    submitButton.style.opacity = '1';
+                    submitButton.style.cursor = 'pointer';
+                    submitButton.textContent = 'Enter Chat Room';
+                    
+                    // フォームの入力を有効化
+                    document.getElementById('client-id').disabled = false;
                 }
             } catch (error) {
-                console.error('Error checking user password:', error);
+                console.error('Failed to check connection status:', error);
             }
         }
         
@@ -411,70 +179,18 @@
         document.getElementById('login-form').addEventListener('submit', async function(event) {
             event.preventDefault();
             const clientId = document.getElementById('client-id').value.trim();
-            const sessionPassword = document.getElementById('session-password').value;
-            const userPassword = document.getElementById('user-password').value;
             
             if (!clientId) {
-                alert('Please enter Client ID');
+                alert('Client IDを入力してください');
                 return;
-            }
-            
-            if (!selectedSessionId) {
-                alert('Please select a session');
-                return;
-            }
-            
-            // Check if session is password protected
-            const selectedSession = sessions.find(s => s.session_id === selectedSessionId);
-            if (selectedSession && selectedSession.password_protected && !sessionPassword) {
-                alert('Please enter session password');
-                return;
-            }
-            
-            // Check user password
-            const userCheckResponse = await fetch(`/api/sessions/${selectedSessionId}/check_user_password?client_id=${encodeURIComponent(clientId)}`);
-            const userCheckData = await userCheckResponse.json();
-            
-            // If ID is already protected, password required
-            if (userCheckData.has_password && !userPassword) {
-                alert('This ID is password protected. Please enter password.');
-                return;
-            }
-            
-            // If session requires user password for new IDs
-            if (!userCheckData.has_password && selectedSession.require_user_password && !userPassword) {
-                alert('Password is required for this session.');
-                return;
-            }
-            
-            // 新規ユーザーIDでパスワードを設定する場合（チェックボックスがチェックされている場合のみ）
-            const usePasswordCheckbox = document.getElementById('use-password');
-            if (!userCheckData.has_password && usePasswordCheckbox.checked && userPassword) {
-                try {
-                    await fetch(`/api/sessions/${selectedSessionId}/set_user_password?client_id=${encodeURIComponent(clientId)}&password=${encodeURIComponent(userPassword)}`, {
-                        method: 'POST'
-                    });
-                } catch (error) {
-                    console.error('Error setting user password:', error);
-                    alert('Failed to set password');
-                    return;
-                }
             }
             
             // クライアントIDをlocalStorageに保存
             localStorage.setItem('client_id', clientId);
-            localStorage.setItem('session_id', selectedSessionId);
             
-            // 選択したセッションのチャットルームにリダイレクト
-            let url = `/chat?client_id=${encodeURIComponent(clientId)}&session_id=${selectedSessionId}`;
-            if (sessionPassword) {
-                url += `&session_password=${encodeURIComponent(sessionPassword)}`;
-                localStorage.setItem('session_password_' + selectedSessionId, sessionPassword);
-            }
-            if (userPassword) {
-                url += `&user_password=${encodeURIComponent(userPassword)}`;
-                localStorage.setItem('user_password_' + selectedSessionId + '_' + clientId, userPassword);
-            }
+            // テンプレート設定を使って新しいセッションを自動作成
+            // 常に実験モードで動作（実験用テンプレートからランダムに選択）
+            let url = `/chat?client_id=${encodeURIComponent(clientId)}&auto_create=true`;
             window.location.href = url;
         });
     </script>
