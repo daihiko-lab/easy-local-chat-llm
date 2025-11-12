@@ -60,7 +60,6 @@ async function connect() {
     ws = new WebSocket(wsUrl);
     
     ws.onopen = async function() {
-        console.log('[Viewer] Connected to session:', sessionId);
         document.getElementById('status-text').textContent = 'Online';
         document.getElementById('status-icon').className = 'online';
         
@@ -70,7 +69,6 @@ async function connect() {
 
     ws.onmessage = function(event) {
         const data = JSON.parse(event.data);
-        console.log('[Viewer] Received message:', data);
         
         // セッション終了メッセージの処理
         if (data.type === 'session_end') {
@@ -85,7 +83,6 @@ async function connect() {
     };
 
     ws.onclose = function(event) {
-        console.log('[Viewer] Disconnected');
         document.getElementById('status-text').textContent = 'Offline';
         document.getElementById('status-icon').className = 'offline';
     };
@@ -163,18 +160,13 @@ function displayMessage(data) {
 // 過去のメッセージを読み込む関数
 async function loadPastMessages() {
     try {
-        console.log(`[Viewer] Loading past messages for session: ${sessionId}`);
-        
         const messagesResponse = await fetch(`/api/sessions/${sessionId}/messages`);
         if (!messagesResponse.ok) {
-            console.log('[Viewer] Failed to fetch messages, status:', messagesResponse.status);
             return;
         }
         
         const data = await messagesResponse.json();
         const messages = data.messages;
-        
-        console.log(`[Viewer] Total messages in session: ${messages.length}`);
         
         // すべてのメッセージを表示（管理者なので全て見える）
         messages.forEach(msg => {
@@ -185,8 +177,6 @@ async function loadPastMessages() {
                 timestamp: msg.timestamp
             });
         });
-        
-        console.log(`[Viewer] Loaded ${messages.length} past messages`);
     } catch (error) {
         console.error('[Viewer] Error loading past messages:', error);
     }

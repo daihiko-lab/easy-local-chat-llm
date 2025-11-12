@@ -9,17 +9,34 @@ from ..models.session import Session
 class SessionManager:
     """セッション管理クラス"""
     
-    def __init__(self, data_dir: str = "data/sessions"):
-        self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, data_dir: str = "data/sessions", experiment_manager=None):
+        self.base_data_dir = Path(data_dir)
+        self.experiment_manager = experiment_manager
+        # ディレクトリは実際に使用する時（data_dirプロパティ）で作成される
         self.current_session: Optional[Session] = None
+    
+    def _get_current_session_dir(self) -> Path:
+        """現在のアクティブな実験のセッションディレクトリを取得"""
+        if self.experiment_manager:
+            current_data_dir = self.experiment_manager.get_current_data_dir()
+            session_dir = current_data_dir / "sessions"
+            # ベースディレクトリ以外（実験ディレクトリ）の場合のみサブディレクトリを作成
+            if current_data_dir != self.experiment_manager.base_dir:
+                session_dir.mkdir(parents=True, exist_ok=True)
+            return session_dir
+        return self.base_data_dir
+    
+    @property
+    def data_dir(self) -> Path:
+        """動的にセッションディレクトリを取得"""
+        return self._get_current_session_dir()
     
     def create_session(self, session_id: Optional[str] = None, password: Optional[str] = None, 
                       require_user_password: bool = False, disable_user_password: bool = False) -> Session:
         """新しいセッションを作成"""
         if session_id is None:
             # タイムスタンプベースのセッションID生成
-            session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            session_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         session = Session(
             session_id=session_id, 
@@ -49,6 +66,10 @@ class SessionManager:
             data = json.load(f)
             return Session.from_dict(data)
     
+    def get_session(self, session_id: str) -> Optional[Session]:
+        """指定されたセッションを取得（load_sessionのエイリアス）"""
+        return self.load_session(session_id)
+    
     def get_all_sessions(self) -> List[Session]:
         """全てのセッションを取得"""
         sessions = []
@@ -67,6 +88,27 @@ class SessionManager:
     def get_active_sessions(self) -> List[Session]:
         """アクティブなセッションのみを取得"""
         return [s for s in self.get_all_sessions() if s.status == "active"]
+    
+    def get_idle_sessions(self, threshold_minutes: int = 30) -> List[Session]:
+        """長時間非アクティブなセッションを取得（情報提供のみ、自動終了はしない）
+        
+        Args:
+            threshold_minutes: 非アクティブと判定する閾値（分）
+            
+        Returns:
+            閾値以上非アクティブなアクティブセッションのリスト
+        """
+        active_sessions = self.get_active_sessions()
+        idle_sessions = []
+        
+        for session in active_sessions:
+            idle_minutes = session.get_idle_minutes()
+            if idle_minutes >= threshold_minutes:
+                idle_sessions.append(session)
+        
+        # アイドル時間の降順でソート（最も放置されているものが先頭）
+        idle_sessions.sort(key=lambda s: s.get_idle_seconds(), reverse=True)
+        return idle_sessions
     
     def update_session(self, session: Session):
         """セッションを更新"""
@@ -122,6 +164,8 @@ class SessionManager:
             "participant_count": len(session.participants),
             "participants": session.participants,
             "total_messages": session.total_messages,
+            "last_activity": session.last_activity,
+            "idle_minutes": round(session.get_idle_minutes(), 1) if session.status == "active" else None,
             "duration": self._calculate_duration(session),
             "metadata": session.metadata.model_dump()
         }

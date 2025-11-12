@@ -332,7 +332,6 @@
         
         <div class="actions">
             <button class="btn btn-primary" onclick="refreshData()">Refresh</button>
-            <button class="btn btn-primary" onclick="showNewSessionModal()">New Session</button>
             <div style="margin-left: auto; font-size: 0.85rem; color: #999;">
                 <span id="auto-refresh-status">Auto-refresh: 5s</span>
             </div>
@@ -340,89 +339,52 @@
 
         <div id="error-message" class="error" style="display: none;"></div>
 
-        <!-- 現在のセッション -->
-        <div id="current-section" class="section" style="display: none;">
-            <h2>アクティブセッション（単一）</h2>
-            <div class="info-grid" id="current-session-info"></div>
-            <div class="actions" style="margin-top: 15px;">
-                <button class="btn btn-small" onclick="exportCurrentSession('json')">JSON</button>
-                <button class="btn btn-small" onclick="exportCurrentSession('csv')">CSV</button>
-            </div>
-        </div>
-
-        <!-- アクティブセッション -->
+        <!-- Experiments Section -->
         <div class="section">
-            <h2>Active Sessions</h2>
-            <ul id="active-sessions-list" class="session-list loading">Loading...</ul>
+            <h2>📊 Experiments</h2>
+            
+            <!-- Workflow Guide -->
+            <div style="background: #fff9e6; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                <h4 style="margin: 0 0 10px 0; font-size: 1em; color: #f57c00;">📖 Quick Guide: Running an Experiment</h4>
+                <ol style="margin: 0; padding-left: 20px; font-size: 0.9em; line-height: 1.8;">
+                    <li><strong>Create Experiment</strong> (below) → Name your study and click "Create"</li>
+                    <li><strong>Manage Conditions</strong> → Click "🔧 Manage" on your experiment to add conditions (e.g., Control, Condition A, B)</li>
+                    <li><strong>Start Experiment</strong> → Click "▶ Start" button</li>
+                    <li><strong>Share Login URL</strong> with participants → They'll be randomly assigned to conditions</li>
+                    <li><strong>View Statistics</strong> and export data → In the "🔧 Manage" page</li>
+                </ol>
+            </div>
+            
+            <!-- Create New Experiment Form -->
+            <div style="background: #f0f8ff; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin: 0 0 15px 0; font-size: 1.1em;">Create New Experiment</h3>
+                <div class="form-group">
+                    <label for="expName">Experiment Name *</label>
+                    <input type="text" id="expName" placeholder="e.g., Study 2025 - Empathy Conditions" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <div class="form-group">
+                    <label for="expDescription">Description</label>
+                    <textarea id="expDescription" placeholder="Brief description of this experiment" rows="3" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; resize: vertical;"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="expResearcher">Researcher Name</label>
+                    <input type="text" id="expResearcher" placeholder="Your name" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <button class="btn btn-primary" onclick="createNewExperiment()" style="width: 100%; margin-top: 10px;">✨ Create Experiment</button>
+            </div>
+            
+            <!-- Active Experiments List -->
+            <h3 style="margin: 20px 0 15px 0; font-size: 1.1em;">Active Experiments</h3>
+            <div id="activeExperimentsList">Loading...</div>
+            
+            <!-- Completed Experiments List -->
+            <h3 style="margin: 20px 0 15px 0; font-size: 1.1em; cursor: pointer; user-select: none;" onclick="toggleCompletedExperiments()">
+                <span id="completed-experiments-toggle">▶</span> Completed Experiments
+                <span id="completed-experiments-count" style="color: #999; font-size: 0.9em;"></span>
+            </h3>
+            <div id="completedExperimentsList" style="display: none;"></div>
         </div>
 
-        <!-- 終了済みセッション -->
-        <div class="section">
-            <h2 style="cursor: pointer; user-select: none;" onclick="toggleEndedSessions()">
-                <span id="ended-sessions-toggle">▶</span> Ended Sessions
-                <span id="ended-sessions-count" style="color: #999; font-size: 0.9em;"></span>
-            </h2>
-            <ul id="ended-sessions-list" class="session-list" style="display: none;">
-            </ul>
-        </div>
-    </div>
-
-    <!-- セッション作成モーダル -->
-    <div id="newSessionModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Create New Session</h2>
-            </div>
-            <div class="modal-body">
-                <form id="newSessionForm">
-                    <!-- セッションパスワード保護 -->
-                    <div class="form-group">
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="useSessionPassword" onchange="toggleSessionPasswordField()">
-                            <label for="useSessionPassword">
-                                Protect session with password
-                            </label>
-                        </div>
-                        <div id="sessionPasswordField" style="display: none; margin-top: 10px;">
-                            <input type="password" id="sessionPassword" placeholder="Enter session password">
-                        </div>
-                    </div>
-
-                    <!-- ユーザーパスワード設定 -->
-                    <div class="form-group">
-                        <label>User Password Policy</label>
-                        
-                        <div style="margin-top: 10px;">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px; cursor: pointer;">
-                                <input type="radio" name="userPasswordPolicy" value="required" style="margin-right: 8px;">
-                                <span>Password required for all users</span>
-                            </label>
-                            
-                            <label style="display: flex; align-items: center; margin-bottom: 10px; cursor: pointer;">
-                                <input type="radio" name="userPasswordPolicy" value="optional" checked style="margin-right: 8px;">
-                                <span>Optional (users choose with or without password)</span>
-                            </label>
-                            
-                            <label style="display: flex; align-items: center; cursor: pointer;">
-                                <input type="radio" name="userPasswordPolicy" value="none" style="margin-right: 8px;">
-                                <span>No password (all users login without password)</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- 既存セッションの扱い -->
-                    <div class="form-group" style="border-top: 1px solid #eee; padding-top: 15px; margin-top: 5px;">
-                        <div class="form-hint" style="color: #999; text-align: center;">
-                            Existing active sessions will continue running
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-cancel" onclick="closeNewSessionModal()">Cancel</button>
-                <button class="btn btn-create" onclick="submitNewSession()">Create Session</button>
-            </div>
-        </div>
     </div>
 
     <script>
@@ -430,149 +392,256 @@
         let autoRefreshInterval = null;
 
         document.addEventListener('DOMContentLoaded', function() {
-            refreshData();
+            loadExperiments();  // 実験一覧を読み込み
             // 5秒ごとに自動更新
-            autoRefreshInterval = setInterval(refreshData, 5000);
+            autoRefreshInterval = setInterval(loadExperiments, 5000);
         });
 
-        async function refreshData() {
-            await Promise.all([loadCurrentSession(), loadAllSessions()]);
-        }
-
-        async function loadCurrentSession() {
+        // 利用可能なモデルを読み込む
+        async function loadAvailableModels() {
             try {
-                const response = await fetch('/api/sessions/current/info');
-                if (response.ok) {
-                    currentSessionData = await response.json();
-                    displayCurrentSession(currentSessionData);
+                const response = await fetch('/api/ollama/models');
+                const data = await response.json();
+                const modelSelect = document.getElementById('botModel');
+                
+                // 既存のオプションをクリア
+                modelSelect.innerHTML = '';
+                
+                // 最初に空のオプションを追加
+                const emptyOption = document.createElement('option');
+                emptyOption.value = '';
+                emptyOption.textContent = '-- Select a model --';
+                modelSelect.appendChild(emptyOption);
+                
+                if (data.models && data.models.length > 0) {
+                    // Ollamaから取得したモデルを追加
+                    data.models.forEach(modelName => {
+                        const option = document.createElement('option');
+                        option.value = modelName;
+                        option.textContent = modelName;
+                        modelSelect.appendChild(option);
+                    });
+                    
+                    // 推奨モデルがあればデフォルト選択
+                    const preferredModels = ['gemma3:4b', 'gemma3:2b', 'llama3.2:3b'];
+                    const availablePreferred = preferredModels.find(m => data.models.includes(m));
+                    if (availablePreferred) {
+                        modelSelect.value = availablePreferred;
+                    }
                 } else {
-                    document.getElementById('current-section').style.display = 'none';
+                    // モデルが取得できない場合はデフォルト値を設定
+                    const defaultModels = ['gemma3:4b', 'gemma2:9b', 'llama3.2:3b', 'qwen2.5:7b'];
+                    defaultModels.forEach(modelName => {
+                        const option = document.createElement('option');
+                        option.value = modelName;
+                        option.textContent = modelName;
+                        modelSelect.appendChild(option);
+                    });
+                    console.warn('No models found from Ollama. Using default list.');
                 }
             } catch (error) {
-                console.error('Current session load error:', error);
-            }
-        }
-
-        function displayCurrentSession(data) {
-            const section = document.getElementById('current-section');
-            const container = document.getElementById('current-session-info');
-            
-            // アクティブセッションが複数ある場合は表示しない（セッション履歴に表示される）
-            const activeSessions = sessions.filter(s => s.status === 'active');
-            if (activeSessions.length > 1) {
-                section.style.display = 'none';
-                return;
-            }
-            
-            section.style.display = 'block';
-            
-            container.innerHTML = `
-                <div class="info-item">
-                    <div class="info-label">セッションID</div>
-                    <div class="info-value" style="font-size: 1rem;">${data.session.session_id}</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">参加者</div>
-                    <div class="info-value">${data.session.participant_count}人</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">メッセージ</div>
-                    <div class="info-value">${data.statistics.total_messages}件</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">総文字数</div>
-                    <div class="info-value">${data.statistics.total_chars}</div>
-                </div>
-            `;
-        }
-
-        async function loadAllSessions() {
-            try {
-                const response = await fetch('/api/sessions');
-                const data = await response.json();
-                displaySessions(data.sessions);
-            } catch (error) {
-                showError('Failed to load sessions: ' + error.message);
-            }
-        }
-
-        function displaySessions(sessions) {
-            // アクティブセッションと終了済みセッションに分ける
-            const activeSessions = sessions.filter(s => s.status === 'active');
-            const endedSessions = sessions.filter(s => s.status === 'ended');
-            
-            // アクティブセッションを表示
-            const activeContainer = document.getElementById('active-sessions-list');
-            if (activeSessions.length === 0) {
-                activeContainer.innerHTML = '<li class="loading">⚠️ No active sessions. Please create a new session using the "New Session" button above.</li>';
-            } else {
-                activeContainer.innerHTML = activeSessions.map(session => 
-                    renderSessionItem(session, true)
-                ).join('');
-            }
-            
-            // 終了済みセッションを表示
-            const endedContainer = document.getElementById('ended-sessions-list');
-            const endedCountSpan = document.getElementById('ended-sessions-count');
-            endedCountSpan.textContent = `(${endedSessions.length})`;
-            
-            if (endedSessions.length === 0) {
-                endedContainer.innerHTML = '<li class="loading">No ended sessions</li>';
-            } else {
-                endedContainer.innerHTML = endedSessions.map(session => 
-                    renderSessionItem(session, false)
-                ).join('');
+                console.error('Failed to load models:', error);
+                // エラー時はデフォルト値を設定
+                const modelSelect = document.getElementById('botModel');
+                modelSelect.innerHTML = '';
+                const defaultModels = ['gemma3:4b', 'gemma2:9b', 'llama3.2:3b', 'qwen2.5:7b'];
+                defaultModels.forEach(modelName => {
+                    const option = document.createElement('option');
+                    option.value = modelName;
+                    option.textContent = modelName;
+                    modelSelect.appendChild(option);
+                });
             }
         }
         
-        function renderSessionItem(session, isActive) {
-            const protectedUsers = session.user_passwords ? Object.keys(session.user_passwords) : [];
-            const protectedUsersInfo = protectedUsers.length > 0 
-                ? `<br>🔐 Protected users: ${protectedUsers.join(', ')}` 
-                : '';
-            
-            let userPasswordPolicy;
-            if (session.disable_user_password) {
-                userPasswordPolicy = '<br><strong>👤 User password: Disabled (no password)</strong>';
-            } else if (session.require_user_password) {
-                userPasswordPolicy = '<br><strong>👤 User password: Required for all</strong>';
-            } else {
-                userPasswordPolicy = '<br>👤 User password: Optional (users can login with or without password)';
+        function goToExperimentDetail(experimentId) {
+            window.location.href = `/admin/experiment/${experimentId}`;
+        }
+        
+        async function loadExperiments() {
+            try {
+                const [experimentsResponse, conditionsResponse, sessionsResponse] = await Promise.all([
+                    fetch('/api/experiments'),
+                    fetch('/api/conditions'),
+                    fetch('/api/sessions')
+                ]);
+                
+                if (!experimentsResponse.ok || !conditionsResponse.ok || !sessionsResponse.ok) throw new Error('Failed to load data');
+                
+                const experimentsData = await experimentsResponse.json();
+                const conditionsData = await conditionsResponse.json();
+                const sessionsData = await sessionsResponse.json();
+                
+                const experiments = experimentsData.experiments || [];
+                const conditions = conditionsData.conditions || [];
+                const sessions = sessionsData.sessions || [];
+                
+                // 実験用条件の数を数える
+                const experimentConditions = conditions.filter(c => c.is_experiment);
+                
+                // Active と Completed に分ける
+                const activeExperiments = experiments.filter(e => ['planning', 'active', 'paused'].includes(e.status));
+                const completedExperiments = experiments.filter(e => e.status === 'completed');
+                
+                const activeContainer = document.getElementById('activeExperimentsList');
+                const completedContainer = document.getElementById('completedExperimentsList');
+                const completedCountSpan = document.getElementById('completed-experiments-count');
+                
+                completedCountSpan.textContent = `(${completedExperiments.length})`;
+                
+                // Active Experiments
+                if (activeExperiments.length === 0) {
+                    activeContainer.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #999;">
+                            <p style="font-size: 1.1em; margin-bottom: 10px;">No active experiments.</p>
+                            ${experimentConditions.length === 0 ? 
+                                `<p style="font-size: 0.9em; color: #f57c00; background: #fff3e0; padding: 12px; border-radius: 6px; display: inline-block;">
+                                    ⚠️ Create experiment conditions first!<br>
+                                    Go to experiment detail page after creating.
+                                </p>` :
+                                `<p style="font-size: 0.9em;">
+                                    ✅ You have ${experimentConditions.length} condition(s) ready.<br>
+                                    Click "Create New Experiment" above to start.
+                                </p>`
+                            }
+                        </div>
+                    `;
+                } else {
+                    activeContainer.innerHTML = activeExperiments.map(exp => renderExperimentCard(exp, experimentConditions, sessions)).join('');
+                }
+                
+                // Completed Experiments
+                if (completedExperiments.length === 0) {
+                    completedContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">No completed experiments</div>';
+                } else {
+                    completedContainer.innerHTML = completedExperiments.map(exp => renderExperimentCard(exp, experimentConditions, sessions)).join('');
+                }
+                
+            } catch (error) {
+                console.error('Failed to load experiments:', error);
+                showError('Failed to load experiments: ' + error.message);
             }
+        }
+        
+        function renderExperimentCard(exp, experimentConditions, allSessions) {
+            const statusColors = {
+                'planning': '#95a5a6',
+                'active': '#27ae60',
+                'paused': '#f39c12',
+                'completed': '#3498db'
+            };
+            const statusLabels = {
+                'planning': 'Planning',
+                'active': 'Active',
+                'paused': 'Paused',
+                'completed': 'Completed'
+            };
             
-            const endedInfo = !isActive && session.ended_at 
-                ? `<br>Ended: ${new Date(session.ended_at).toLocaleString('en-US')}` 
-                : '';
+            const conditionsCount = exp.status === 'active' ? experimentConditions.length : 0;
+            
+            // この実験に属するセッションを取得
+            const experimentSessions = allSessions.filter(s => s.experiment_id === exp.experiment_id);
+            const activeSessions = experimentSessions.filter(s => s.status === 'active');
+            const endedSessions = experimentSessions.filter(s => s.status === 'ended');
             
             return `
-            <li class="session-item">
-                <div class="session-header">
-                    <span class="session-id">${session.password_protected ? '🔒 ' : ''}${session.session_id}</span>
-                    <span class="session-status ${session.status}">${session.status === 'active' ? 'Active' : 'Ended'}</span>
+                <div style="padding: 20px; margin-bottom: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid ${statusColors[exp.status]};">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                        <div style="flex: 1;">
+                            <h3 style="margin: 0 0 8px 0; font-size: 1.2em; color: #333;">
+                                ${exp.name}
+                                <span style="background: ${statusColors[exp.status]}; color: white; padding: 3px 10px; border-radius: 4px; font-size: 0.7em; margin-left: 10px;">
+                                    ${statusLabels[exp.status]}
+                                </span>
+                                ${conditionsCount > 0 ? `
+                                <span style="background: #ff9800; color: white; padding: 3px 10px; border-radius: 4px; font-size: 0.7em; margin-left: 5px;">
+                                    📋 ${conditionsCount} Conditions
+                                </span>` : ''}
+                            </h3>
+                            ${exp.description ? `<p style="margin: 0 0 8px 0; color: #666; font-size: 0.95em;">${exp.description}</p>` : ''}
+                            ${exp.researcher ? `<p style="margin: 0; color: #999; font-size: 0.85em;">👤 Researcher: ${exp.researcher}</p>` : ''}
+                            ${exp.status === 'active' && conditionsCount === 0 ? `
+                            <div style="background: #fff3cd; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 0.85em; color: #856404;">
+                                ⚠️ No experiment conditions! Create conditions by clicking "🔧 Manage"
+                            </div>` : ''}
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                            <button class="btn btn-small" onclick="goToExperimentDetail('${exp.experiment_id}')" style="background: #3498db; color: white;">🔧 Manage</button>
+                            ${exp.status === 'completed' ? `<button class="btn btn-small" onclick="deleteExperiment('${exp.experiment_id}', '${exp.name}')" style="background: #e74c3c; color: white;">🗑 Delete</button>` : ''}
+                        </div>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                        <div>
+                            <div style="font-size: 0.8em; color: #999;">Participants</div>
+                            <div style="font-size: 1.3em; font-weight: 600; color: #333;">${exp.total_participants || 0}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.8em; color: #999;">Total Sessions</div>
+                            <div style="font-size: 1.3em; font-weight: 600; color: #333;">${experimentSessions.length}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.8em; color: #999;">Created</div>
+                            <div style="font-size: 0.9em; color: #666;">${new Date(exp.created_at).toLocaleDateString()}</div>
+                        </div>
+                        ${exp.started_at ? `
+                        <div>
+                            <div style="font-size: 0.8em; color: #999;">Started</div>
+                            <div style="font-size: 0.9em; color: #666;">${new Date(exp.started_at).toLocaleDateString()}</div>
+                        </div>
+                        ` : ''}
+                    </div>
+                    
+                    ${experimentSessions.length > 0 ? `
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 1em; color: #555; cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center;" onclick="toggleExperimentSessions('${exp.experiment_id}')">
+                            <span>
+                                <span id="sessions-toggle-${exp.experiment_id}">▼</span> Sessions (${experimentSessions.length})
+                                <span style="color: #999; font-size: 0.9em; margin-left: 10px;">Active: ${activeSessions.length} | Ended: ${endedSessions.length}</span>
+                            </span>
+                        </h4>
+                        <div id="sessions-content-${exp.experiment_id}" style="display: block;">
+                            ${activeSessions.length > 0 ? `
+                            <div style="margin-bottom: 10px;">
+                                <div style="font-size: 0.9em; color: #27ae60; font-weight: 600; margin-bottom: 5px;">● Active (${activeSessions.length})</div>
+                                ${activeSessions.map(s => `
+                                    <div style="padding: 8px; margin-bottom: 5px; background: white; border-radius: 4px; font-size: 0.85em; display: flex; justify-content: space-between; align-items: center;">
+                                        <div>
+                                            <span style="font-family: monospace; color: #333;">${s.session_id.substring(0, 12)}...</span>
+                                            ${s.experiment_group ? `<span style="color: #666; margin-left: 8px;">| ${s.experiment_group}</span>` : ''}
+                                            <span style="color: #999; margin-left: 8px;">| ${s.participants.length} participant(s)</span>
+                                        </div>
+                                        <button class="btn btn-small" onclick="viewSession('${s.session_id}')" style="background: #3498db; color: white; font-size: 0.8em; padding: 4px 8px;">View</button>
+                                    </div>
+                                `).join('')}
+                            </div>` : ''}
+                            ${endedSessions.length > 0 ? `
+                            <div>
+                                <div style="font-size: 0.9em; color: #999; font-weight: 600; margin-bottom: 5px;">● Ended (${endedSessions.length})</div>
+                                ${endedSessions.slice(0, 3).map(s => `
+                                    <div style="padding: 8px; margin-bottom: 5px; background: white; border-radius: 4px; font-size: 0.85em; display: flex; justify-content: space-between; align-items: center;">
+                                        <div>
+                                            <span style="font-family: monospace; color: #666;">${s.session_id.substring(0, 12)}...</span>
+                                            ${s.experiment_group ? `<span style="color: #999; margin-left: 8px;">| ${s.experiment_group}</span>` : ''}
+                                            <span style="color: #999; margin-left: 8px;">| ${s.total_messages} msg(s)</span>
+                                        </div>
+                                        <div style="display: flex; gap: 4px;">
+                                            <button class="btn btn-small" onclick="exportSession('${s.session_id}', 'json')" style="font-size: 0.8em; padding: 4px 8px;">JSON</button>
+                                            <button class="btn btn-small" onclick="exportSession('${s.session_id}', 'csv')" style="font-size: 0.8em; padding: 4px 8px;">CSV</button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                                ${endedSessions.length > 3 ? `<div style="text-align: center; color: #999; font-size: 0.85em; margin-top: 5px;">... and ${endedSessions.length - 3} more (view in "🔧 Manage")</div>` : ''}
+                            </div>` : ''}
+                        </div>
+                    </div>` : ''}
                 </div>
-                <div class="session-info">
-                    Participants: ${session.participants.join(', ') || 'None'} | 
-                    Messages: ${session.total_messages} | 
-                    Created: ${new Date(session.created_at).toLocaleString('en-US')}
-                    ${endedInfo}
-                    ${session.password_protected ? '<br><strong>🔒 Session password protected</strong>' : ''}
-                    ${userPasswordPolicy}
-                    ${protectedUsersInfo}
-                </div>
-                <div class="session-actions">
-                    ${isActive ? `<button class="btn btn-small" onclick="viewSession('${session.session_id}')" style="background: #3498db; color: white;">View</button>` : ''}
-                    <button class="btn btn-small" onclick="exportSession('${session.session_id}', 'json')">JSON</button>
-                    <button class="btn btn-small" onclick="exportSession('${session.session_id}', 'csv')">CSV</button>
-                    ${isActive ? `<button class="btn btn-small" onclick="endSession('${session.session_id}')" style="background: #fee; color: #c33;">End</button>` : 
-                                  `<button class="btn btn-small" onclick="deleteSession('${session.session_id}')" style="background: #fee; color: #c33;">Delete</button>`}
-                </div>
-            </li>
             `;
         }
         
-        function toggleEndedSessions() {
-            const list = document.getElementById('ended-sessions-list');
-            const toggle = document.getElementById('ended-sessions-toggle');
+        function toggleCompletedExperiments() {
+            const list = document.getElementById('completedExperimentsList');
+            const toggle = document.getElementById('completed-experiments-toggle');
             
             if (list.style.display === 'none') {
                 list.style.display = 'block';
@@ -582,86 +651,156 @@
                 toggle.textContent = '▶';
             }
         }
-
-        // モーダル制御関数
-        function showNewSessionModal() {
-            document.getElementById('newSessionModal').style.display = 'block';
-        }
-
-        function closeNewSessionModal() {
-            document.getElementById('newSessionModal').style.display = 'none';
-            // フォームをリセット
-            document.getElementById('newSessionForm').reset();
-            document.getElementById('sessionPasswordField').style.display = 'none';
-        }
-
-        function toggleSessionPasswordField() {
-            const checkbox = document.getElementById('useSessionPassword');
-            const field = document.getElementById('sessionPasswordField');
-            field.style.display = checkbox.checked ? 'block' : 'none';
-        }
-
-        // モーダル外をクリックしたら閉じる
-        window.onclick = function(event) {
-            const modal = document.getElementById('newSessionModal');
-            if (event.target === modal) {
-                closeNewSessionModal();
-            }
-        }
-
-        // ESCキーでモーダルを閉じる
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape') {
-                const modal = document.getElementById('newSessionModal');
-                if (modal.style.display === 'block') {
-                    closeNewSessionModal();
-                }
-            }
-        });
-
-        async function submitNewSession() {
-            const useSessionPassword = document.getElementById('useSessionPassword').checked;
-            const sessionPassword = useSessionPassword ? document.getElementById('sessionPassword').value : '';
+        
+        function toggleExperimentSessions(experimentId) {
+            const content = document.getElementById(`sessions-content-${experimentId}`);
+            const toggle = document.getElementById(`sessions-toggle-${experimentId}`);
             
-            // ユーザーパスワードポリシーを取得
-            const userPasswordPolicy = document.querySelector('input[name="userPasswordPolicy"]:checked').value;
-            const requireUserPassword = (userPasswordPolicy === 'required');
-            const disableUserPassword = (userPasswordPolicy === 'none');
-
-            // パスワード保護がONなのにパスワードが空の場合
-            if (useSessionPassword && !sessionPassword) {
-                alert('Please enter a session password or uncheck the password protection option.');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                toggle.textContent = '▶';
+            }
+        }
+        
+        async function createNewExperiment() {
+            const name = document.getElementById('expName').value.trim();
+            const description = document.getElementById('expDescription').value.trim();
+            const researcher = document.getElementById('expResearcher').value.trim();
+            
+            if (!name) {
+                alert('Please enter experiment name');
                 return;
             }
 
             try {
-                const response = await fetch(`/api/sessions/new?end_previous=false&password=${encodeURIComponent(sessionPassword)}&require_user_password=${requireUserPassword}&disable_user_password=${disableUserPassword}`, { 
-                    method: 'POST' 
+                const response = await fetch('/api/experiments', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        name, 
+                        description, 
+                        researcher
+                    })
                 });
+                
+                if (!response.ok) throw new Error('Failed to create experiment');
+                
+                alert('✅ Experiment created successfully!');
+                document.getElementById('expName').value = '';
+                document.getElementById('expDescription').value = '';
+                document.getElementById('expResearcher').value = '';
+                loadExperiments();
+                
+            } catch (error) {
+                showError('Failed to create experiment: ' + error.message);
+            }
+        }
+        
+        async function startExperiment(experimentId) {
+            if (!confirm('Start this experiment?\nThis will mark it as active.')) return;
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/start`, { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to start experiment');
+                
+                alert('✅ Experiment started!');
+                loadExperiments();
+                
+            } catch (error) {
+                showError('Failed to start experiment: ' + error.message);
+            }
+        }
+        
+        async function endExperiment(experimentId) {
+            if (!confirm('End this experiment?\nThis will mark it as completed.')) return;
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/end`, { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to end experiment');
+                
+                alert('✅ Experiment ended!');
+                loadExperiments();
+                
+            } catch (error) {
+                showError('Failed to end experiment: ' + error.message);
+            }
+        }
+        
+        async function deleteExperiment(experimentId, experimentName) {
+            const confirmMessage = `⚠️ WARNING: This action cannot be undone!\n\nDelete experiment "${experimentName}"?\n\nThis will permanently remove:\n- Experiment configuration\n- All associated data\n\nType "DELETE" to confirm:`;
+            
+            const userInput = prompt(confirmMessage);
+            
+            if (userInput !== 'DELETE') {
+                if (userInput !== null) {
+                    alert('Deletion cancelled. You must type "DELETE" exactly to confirm.');
+                }
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/delete`, { method: 'DELETE' });
+                if (response.ok) {
+                    alert('✅ Experiment deleted successfully');
+                    loadExperiments();
+                } else {
+                    showError('Failed to delete experiment');
+                }
+            } catch (error) {
+                showError('Failed to delete experiment: ' + error.message);
+            }
+        }
+        
+        async function viewExperimentDetails(experimentId) {
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/statistics`);
+                if (!response.ok) throw new Error('Failed to load statistics');
+                
                 const data = await response.json();
                 
-                // ユーザーパスワードポリシーの表示文字列
-                let userPasswordText;
-                if (userPasswordPolicy === 'required') {
-                    userPasswordText = '🔐 Required for all users';
-                } else if (userPasswordPolicy === 'optional') {
-                    userPasswordText = '👤 Optional (users can choose)';
+                let statsHTML = `
+                    <h3>Experiment Statistics</h3>
+                    <p><strong>Total Sessions:</strong> ${data.total_sessions}</p>
+                    <hr>
+                    <h4>Condition Assignment:</h4>
+                `;
+                
+                if (data.condition_stats.length === 0) {
+                    statsHTML += '<p>No sessions recorded yet.</p>';
                 } else {
-                    userPasswordText = '🔓 No password (login without password)';
+                    statsHTML += '<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">';
+                    statsHTML += '<tr><th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5;">Condition</th><th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5;">Sessions</th><th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5;">Participants</th><th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5;">Messages</th></tr>';
+                    
+                    data.condition_stats.forEach(stat => {
+                        statsHTML += `<tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">${stat.condition_name}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${stat.session_count}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${stat.participant_count}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${stat.message_count}</td>
+                        </tr>`;
+                    });
+                    
+                    statsHTML += '</table>';
                 }
                 
-                let message = '✅ New session created!\n\n' +
-                      'Session ID: ' + data.session.session_id + '\n\n' +
-                      'Settings:\n' +
-                      '- Session password: ' + (sessionPassword ? '🔒 Protected' : '🔓 Open') + '\n' +
-                      '- User password: ' + userPasswordText + '\n\n' +
-                      'Existing sessions remain active.';
+                alert(statsHTML.replace(/<[^>]*>/g, function(match) {
+                    if (match === '<hr>') return '\n' + '─'.repeat(40) + '\n';
+                    if (match.startsWith('<h')) return '\n\n';
+                    if (match.startsWith('</h')) return '\n';
+                    if (match === '<p>') return '\n';
+                    if (match.startsWith('<tr>')) return '\n';
+                    if (match.startsWith('<th')) return '';
+                    if (match.startsWith('</th>')) return ' | ';
+                    if (match.startsWith('<td')) return '';
+                    if (match.startsWith('</td>')) return ' | ';
+                    return '';
+                }));
                 
-                alert(message);
-                closeNewSessionModal();
-                refreshData();
             } catch (error) {
-                showError('Failed to create session: ' + error.message);
+                showError('Failed to load experiment statistics: ' + error.message);
             }
         }
 
@@ -669,7 +808,7 @@
             if (confirm('End this session?\nActive users will be disconnected.')) {
                 try {
                     await fetch(`/api/sessions/${sessionId}/end`, { method: 'POST' });
-                    alert('Session ended');
+                    alert('Session ended successfully');
                     refreshData();
                 } catch (error) {
                     showError('Failed to end session: ' + error.message);
@@ -682,7 +821,7 @@
                 try {
                     const response = await fetch(`/api/sessions/${sessionId}/delete`, { method: 'DELETE' });
                     if (response.ok) {
-                        alert('Session deleted');
+                        alert('Session deleted successfully');
                         refreshData();
                     } else {
                         showError('Failed to delete session');

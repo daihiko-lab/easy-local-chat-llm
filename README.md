@@ -1,348 +1,256 @@
 # Easy Local Chat LLM
 
-ローカルLLM bot機能を搭載したチャットシステム
+🤖 **Local Chat System with AI Assistant**
 
-## 元プロジェクト
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/python-3.9+-green.svg)](https://www.python.org/)
+[![Ollama](https://img.shields.io/badge/ollama-required-orange.svg)](https://ollama.ai/)
 
-このプロジェクトは [easy-local-chat](https://github.com/yamanori99/easy-local-chat) のフォークです。
+Real-time chat system with WebSocket communication and local LLM bot powered by Ollama (Gemma3). Ideal for research purposes with built-in data export and experiment management features.
 
-## 追加機能
+[日本語 README](README.ja.md)
 
-- 🤖 ローカルLLM botの統合
-- （追加予定の機能をここに記載）
+> This project is based on [easy-local-chat](https://github.com/yamanori99/easy-local-chat)
 
----
-(以下の文章はフォーク先から）
+## ✨ Features
 
-# ローカルチャットシステム
+- **Real-time Chat**: Low-latency WebSocket communication
+- **AI Bot**: Local LLM (e.g., Gemma3) with conversation history
+- **Experiment Management**: Multiple conditions, random assignment
+- **Data Management**: Auto-save sessions/messages, JSON/CSV export
+- **Admin Panel**: Data visualization, real-time statistics, session monitoring
 
-シンプルで使いやすいローカルチャットシステムです。WebSocketを使用したリアルタイムコミュニケーションを実現します。
+## Requirements
 
-## 機能概要
-- リアルタイムチャット機能
-- 複数ユーザー同時接続対応
-- 自動再接続機能
-- レスポンシブデザイン
-- システムメッセージ表示
-- **📊 セッション・メッセージデータ保存機能（研究用）**
-- **📈 管理画面でのデータ可視化・エクスポート**
-- **💾 JSON/CSV形式でのデータエクスポート**
+- **Python 3.9+**
+- **Ollama** (for LLM bot)
+- Modern web browser
 
-## 開発環境
+> ⚠️ Virtual environment recommended for macOS/Linux
 
-M4 Mac mini (16GB / 256GB) / macOS Tahoe 26.0.1 / Python 3.14.0
+## 🚀 Quick Start
 
-## 必要条件
-- Python 3.9以上（開発環境: 3.14.0）
-- pip（Pythonパッケージマネージャー）
-- モダンブラウザ（Chrome, Firefox, Safari, Edge等）
+### 1. Setup Ollama
 
-**重要**: macOSやLinuxの最新版では、システムPythonの保護により直接パッケージのインストールができない場合があります。必ず仮想環境を使用することを推奨します。
+**Install:**
 
-## クイックスタート
-
-### 1. インストール
 ```bash
-# リポジトリのクローン
+# macOS
+brew install ollama
+
+# Linux
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Windows: Download from https://ollama.ai/
+```
+
+**Start service and download model:**
+
+```bash
+# Start service
+ollama serve &
+
+# Download model (default: gemma3:4b)
+ollama pull gemma3:4b
+```
+
+**Available models:**
+
+| Model | Size | Memory | Notes |
+|-------|------|--------|-------|
+| `gemma3:1b` | 815MB | 4GB | Lightweight & fast |
+| `gemma3:4b` | 3.3GB | 8GB | Balanced (recommended) |
+| `gemma3:12b` | 8.1GB | 16GB | High performance |
+
+### 2. Setup Project
+
+```bash
+# Clone repository
 git clone https://github.com/yamanori99/easy-local-chat.git
 cd easy-local-chat
 
-# 仮想環境のセットアップ
+# Setup virtual environment
 python3 -m venv venv
+source venv/bin/activate  # macOS/Linux
+# .\venv\Scripts\activate  # Windows
 
-# 仮想環境の有効化
-# macOS/Linux:
-source venv/bin/activate
-# Windows:
-.\venv\Scripts\activate
-
-# 依存パッケージのインストール
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. サーバーの起動
-
-#### 方法1: 起動スクリプトを使う（推奨）
-
-簡単に起動できるスクリプトを用意しています：
+### 3. Start Server
 
 ```bash
-# サーバーを起動
-./deployment/start_server.sh
-
-# または、開発モード（自動リロード有効）
+# Using startup script (recommended)
 ./deployment/start_server_dev.sh
 
-# サーバーを停止
-./deployment/stop_server.sh
-
-# サーバーの状態確認
-./deployment/server_status.sh
-```
-
-詳細は `deployment/README.md` を参照してください。
-
-#### 方法2: 直接uvicornコマンドで起動
-
-```bash
+# Or direct start
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-初回起動時に管理者パスワードの設定を求められます。
+Admin credentials will be set on first startup.
 
-### 3. セッションの作成（初回必須）
+### 4. Access
 
-**管理画面にアクセス**：
-```
-http://localhost:8000/admin
-```
+**Local (same computer):**
+- Admin: `http://localhost:8000/admin`
+- Participant login: `http://localhost:8000/login`
 
-1. 設定した管理者パスワードでログイン
-2. 「Create New Session」ボタンをクリック
-3. セッションが作成されます
+**Network (other devices):**
+- Admin: `http://YOUR_IP:8000/admin`
+- Participant login: `http://YOUR_IP:8000/login`
 
-### 4. チャット画面へのアクセス
+(IP address displayed on server startup)
 
-セッション作成後、参加者は以下のURLにアクセス：
-```
-http://localhost:8000
-```
+## 📖 Usage
 
-### 5. ネットワークアクセス
-他のデバイスからアクセスする場合：
+### Basic Experiment Workflow
 
-1. **IPアドレスの確認**
-   ```bash
-   ifconfig | grep "inet " | grep -v 127.0.0.1
-   ```
+1. **Access admin panel** → `http://localhost:8000/admin`
 
-2. **他のデバイスからのアクセス**
-   ```
-   http://[あなたのIPアドレス]:8000
-   例: http://***.***.***.***:8000
-   ```
+2. **Create new experiment**
+   - Enter experiment name, description, researcher name
+   - Set max concurrent sessions if needed
 
-3. **ファイアウォール設定**
-   - macOS: システム環境設定 > セキュリティとプライバシー > ファイアウォール
-   - Windows: Windows Defender ファイアウォール
-   - Linux: ufw status でファイアウォール状態を確認
+3. **Create experimental conditions**
+   - Click "Create New Template" in experiment detail page
+   - Configure condition name, bot model, system prompt
+   - Create multiple conditions (automatically added to experiment)
+   - Optional: Set time limit, instructions, and survey
 
-## 📊 データ保存機能（研究用）
+4. **Start experiment**
+   - Click "Start Experiment" button
 
-### セッション管理
-- **自動セッション作成**: サーバー起動時に自動的に新しいセッションが作成されます
-- **セッションID**: タイムスタンプベースで一意のIDが生成されます（例: `session_20251029_143052`）
-- **参加者追跡**: 各セッションで誰が参加したかを記録
-- **メッセージカウント**: セッションごとの総メッセージ数を追跡
+5. **Share participant URL**
+   - Send login URL (`http://YOUR_IP:8000/login`) to participants
+   - Participants are automatically assigned to random conditions
 
-### データ保存
-全てのメッセージは以下の情報とともに自動保存されます：
-- メッセージID（一意）
-- セッションID
-- クライアントID（ユーザー名）
-- メッセージタイプ（message/system）
-- メッセージ内容
-- タイムスタンプ
-- メタデータ（文字数、単語数など）
+6. **Collect data**
+   - View real-time statistics in admin panel
+   - Download JSON/CSV using "Export" button
+   - Survey responses are automatically saved
 
-### 管理画面（/admin）
-管理画面では以下の操作が可能です：
-- **現在のセッション情報表示**: アクティブなセッションの統計をリアルタイム表示
-- **全セッション履歴**: 過去のセッション一覧を確認
-- **データエクスポート**: JSON/CSV形式でデータをダウンロード
-  - `messages.json`: 全メッセージデータ
-  - `messages.csv`: CSV形式のメッセージ一覧
-  - `session_summary.json`: セッションサマリー
-- **セッション管理**: 新規セッション作成、セッション終了
+## 📊 Data Structure
 
-### データ構造
+Readable directory names are created for each experiment:
+
 ```
 data/
-├── sessions/          # セッション情報
-│   └── session_YYYYMMDD_HHMMSS.json
-└── messages/          # メッセージデータ
-    └── session_YYYYMMDD_HHMMSS.json
-
-exports/              # エクスポートされたファイル
-├── messages_session_xxx_YYYYMMDD_HHMMSS.csv
-├── messages_session_xxx_YYYYMMDD_HHMMSS.json
-└── session_summary_session_xxx_YYYYMMDD_HHMMSS.json
+└── user_study_2024/         # Auto-generated from experiment name
+    ├── experiments/         # Experiment configuration
+    ├── conditions/          # Experimental conditions
+    ├── sessions/            # Session information
+    ├── messages/            # Message data
+    └── exports/             # Exported data
 ```
 
-### API エンドポイント
-研究用に以下のAPIエンドポイントを利用できます：
-- `GET /api/sessions`: 全セッション取得
-- `GET /api/sessions/{session_id}`: 特定のセッション情報
-- `GET /api/sessions/{session_id}/messages`: セッションのメッセージ取得
-- `GET /api/sessions/{session_id}/statistics`: セッション統計
-- `GET /api/sessions/current/info`: 現在のセッション情報
-- `POST /api/sessions/{session_id}/export?format=json|csv`: データエクスポート
-- `POST /api/sessions/{session_id}/end`: セッション終了
-- `POST /api/sessions/new`: 新規セッション作成
+**Important behavior:**
+- Active experiment directories are automatically reused
+- Settings and data persist after server restart
+- Bot messages are recorded as `message_type: "bot"`
 
-## 詳細な使用方法
+## 📝 Survey Feature
 
-### ログイン機能
-- **ログイン方法**
-  - 初回アクセス時にログイン画面が表示
-  - クライアントIDを入力して入室
-  - 一度入力したIDは自動的に保存（ブラウザセッション中）
+Display surveys to participants at the end of the experiment. Perfect for measuring psychological scales.
 
-- **ユーザー識別**
-  - 各ユーザーに固有の色を自動割り当て
-  - メッセージにユーザー名とカラーコードを表示
-  - システムメッセージでユーザーの入退室を通知
+### Supported Question Types
 
-- **セキュリティ**
-  - クライアントIDの重複チェック
-  - 不正なIDの入力防止（文字数制限、使用可能文字の制限）
-  - WebSocket接続の認証確認
+1. **Likert Scale** (`likert`)
+   - Example: "Strongly disagree (1) ~ Strongly agree (7)"
+   - Settings: `scale_min`, `scale_max`, `scale_min_label`, `scale_max_label`
 
-### チャット機能
-- **メッセージ送信**
-  - テキストボックスに入力
-  - 送信ボタンまたはEnterキーで送信
-- **メッセージ表示**
-  - 自分のメッセージ：右側
-  - 他のユーザーのメッセージ：左側
-  - システムメッセージ：中央
-  - すべてのメッセージにタイムスタンプ付き
+2. **Free Text** (`text`)
+   - Example: "Please share your thoughts about the experiment"
+   - Settings: `max_length` (maximum characters)
 
-### システム機能
-- **自動再接続**
-  - 接続が切れた場合に自動的に再接続
-  - 接続状態をヘッダーに表示
-- **マルチユーザー対応**
-  - 複数ブラウザウィンドウでの同時接続可能
-  - ユーザー参加/退出の通知
+3. **Single Choice** (`single_choice`)
+   - Example: "Select your gender"
+   - Settings: `choices` (list of options)
 
-## セキュリティ設定
+4. **Multiple Choice** (`multiple_choice`)
+   - Example: "Select all that apply"
+   - Settings: `choices` (list of options)
 
-### クライアントID制限
-- 最小文字数: 3文字
-- 最大文字数: 20文字
-- 使用可能文字: 英数字、アンダースコア(_)、ハイフン(-)
-- 予約語の使用禁止（admin, system等）
+### Example Survey Configuration (JSON)
 
-### 接続制限
-- 同一IPアドレスからの最大接続数: 5
-- 接続タイムアウト: 60秒
-- 再接続試行回数: 3回
+```json
+{
+  "survey_title": "Post-Experiment Survey",
+  "survey_description": "Thank you for participating. Please answer the following questions.",
+  "survey_questions": [
+    {
+      "question_id": "q1",
+      "question_text": "Was the AI's response natural?",
+      "question_type": "likert",
+      "scale_min": 1,
+      "scale_max": 7,
+      "scale_min_label": "Not natural at all",
+      "scale_max_label": "Very natural",
+      "required": true
+    },
+    {
+      "question_id": "q2",
+      "question_text": "Please share your thoughts about the experiment",
+      "question_type": "text",
+      "max_length": 500,
+      "required": false
+    }
+  ]
+}
+```
 
-### データ保護
-- メッセージの一時保存のみ（永続化なし）
-- クライアント情報の暗号化
-- セッション管理によるセキュリティ確保
+### Exporting Survey Data
 
-## 設定のカスタマイズ
+- **Per Session**: `/api/sessions/{session_id}/export/survey?format=csv`
+- **Entire Experiment**: `/api/experiments/{experiment_id}/export/survey?format=csv`
 
-### サーバー設定
+Survey responses are automatically saved per participant and can be exported in CSV/JSON format.
+
+## ⚙️ Customization
+
+### Change Bot Model
+
+Specify when creating experimental conditions, or edit `src/main.py`:
+
+```python
+bot_manager = BotManager(model="gemma3:4b", bot_client_id="bot")
+```
+
+### Change Admin Account
+
 ```bash
-# ポート番号の変更
-uvicorn src.main:app --port 3000
-
-# ホストの制限
-uvicorn src.main:app --host 127.0.0.1
-
-# SSL/TLS対応（開発環境）
-uvicorn src.main:app --ssl-keyfile=./key.pem --ssl-certfile=./cert.pem
+# Delete credentials file and restart
+rm data/admin_credentials.json
+./deployment/start_server_dev.sh
 ```
 
-### クライアント設定
-- ブラウザのローカルストレージでユーザー設定を保存
-- カスタムテーマの選択（ライト/ダーク）
-- メッセージ表示設定のカスタマイズ
+## 🔧 Troubleshooting
 
-## トラブルシューティング
+| Issue | Solution |
+|-------|----------|
+| Bot not responding | Check Ollama: `ps aux \| grep ollama`<br>Check models: `ollama list` |
+| Slow response | Use lighter model (`gemma3:1b`)<br>Recommended: 8GB+ RAM |
+| Connection error | Check port 8000 usage |
+| Model download fails | Restart Ollama: `killall ollama && ollama serve &` |
 
-### 一般的な問題
-1. **接続エラー**
-   - ポート8000の使用状況を確認
-   - ファイアウォール設定の確認
-   - `netstat -ano | grep 8000` でポート状態確認
+## 🛠️ Tech Stack
 
-2. **表示の問題**
-   - ブラウザのキャッシュをクリア
-   - JavaScript有効化の確認
-   - 開発者ツール（F12）でエラーを確認
+- **Backend**: FastAPI, WebSocket, Ollama
+- **Frontend**: HTML5, CSS3, JavaScript
+- **LLM**: Gemma3 (Google)
 
-3. **仮想環境関連の問題**
-   - **externally-managed-environment エラー**
-     ```bash
-     # エラーメッセージが表示された場合は仮想環境を使用
-     python3 -m venv venv
-     source venv/bin/activate  # macOS/Linux
-     .\venv\Scripts\activate   # Windows
-     pip install -r requirements.txt
-     ```
-   
-   - **pip コマンドが見つからない場合**
-     ```bash
-     python3 -m pip install -r requirements.txt
-     ```
+## 📖 Documentation
 
-4. **ネットワークアクセスの問題**
-   - 他のデバイスからアクセスできない場合：
-     - 同じWiFi/LANネットワークに接続されているか確認
-     - ルーターのゲスト接続分離設定を確認
-     - IPアドレスが正しいか確認
-     - ポート8000がブロックされていないか確認
+- [CHANGELOG.md](CHANGELOG.md) - Version history
+- [deployment/README.md](deployment/README.md) - Deployment guide
+- API: `http://localhost:8000/docs` (after startup)
 
-## 開発者向け情報
+## 🔗 Links
 
-### プロジェクト構造
-```
-easy-local-chat/
-├── README.md
-├── requirements.txt
-├── data/                    # データ保存ディレクトリ（自動生成）
-│   ├── sessions/           # セッションデータ
-│   └── messages/           # メッセージデータ
-├── exports/                 # エクスポートファイル（自動生成）
-└── src/
-    ├── main.py             # サーバーサイドロジック
-    ├── models/             # データモデル
-    │   ├── session.py
-    │   └── message.py
-    ├── managers/           # データ管理
-    │   ├── session_manager.py
-    │   └── message_store.py
-    ├── exporters/          # データエクスポート
-    │   └── data_exporter.py
-    ├── static/             # 静的ファイル
-    │   ├── css/
-    │   ├── js/
-    │   └── images/
-    └── templates/          # HTMLテンプレート
-        ├── login.html
-        ├── chat.html
-        ├── admin.html
-        ├── admin_login.html
-        └── viewer.html
-```
+- [Ollama Official Site](https://ollama.ai/)
+- [Original Project](https://github.com/yamanori99/easy-local-chat)
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
 
-### 使用技術
-- **バックエンド**
-  - FastAPI (Pythonフレームワーク)
-  - WebSocket (リアルタイム通信)
-- **フロントエンド**
-  - HTML5
-  - CSS3
-  - JavaScript (ES6+)
-- **開発ツール**
-  - uvicorn (ASGIサーバー)
-  - Jinja2 (テンプレートエンジン)
-
-### デバッグ方法
-- **サーバーサイド**
-  - uvicornログの監視
-  - FastAPIのデバッグモード活用
-
-- **クライアントサイド**
-  - 開発者ツール（F12）の使用
-  - WebSocket通信の監視
-  - コンソールログの確認
-
-## ライセンス
+## License
 
 MIT License

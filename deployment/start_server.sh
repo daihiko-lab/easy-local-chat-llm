@@ -1,44 +1,62 @@
-#!/bin/zsh
-# ローカルでチャットサーバーを起動するスクリプト
+#!/usr/bin/env bash
+# Easy Local Chat - Production Server Startup Script
 
-# プロジェクトのルートディレクトリに移動
+set -e  # Exit on error
+
+# Move to project root
 cd "$(dirname "$0")/.."
 
 echo "=========================================="
-echo "Easy Local Chat - サーバー起動"
+echo "Easy Local Chat - Starting Server"
 echo "=========================================="
 echo ""
 
-# 仮想環境の確認
+# Check/setup virtual environment
 if [ ! -d "venv" ]; then
-    echo "仮想環境が見つかりません。作成しています..."
+    echo "Creating virtual environment..."
     python3 -m venv venv
+fi
+
+# Activate virtual environment
+if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
-    pip install -r requirements.txt
+elif [ -f "venv/Scripts/activate" ]; then
+    source venv/Scripts/activate
 else
-    source venv/bin/activate
+    echo "Error: Cannot find virtual environment activation script"
+    exit 1
 fi
 
-# Mac miniのIPアドレスを表示
-LOCAL_IP=$(ifconfig en0 2>/dev/null | grep "inet " | awk '{print $2}')
-if [ -z "$LOCAL_IP" ]; then
-    LOCAL_IP=$(ifconfig en1 2>/dev/null | grep "inet " | awk '{print $2}')
-fi
+# Install/update dependencies
+pip install -q -r requirements.txt
 
-echo "サーバーを起動しています..."
+# Get local IP address
+get_local_ip() {
+    # Try common network interfaces
+    for interface in en0 en1 eth0 wlan0; do
+        LOCAL_IP=$(ifconfig "$interface" 2>/dev/null | grep "inet " | awk '{print $2}' | grep -v "127.0.0.1")
+        [ -n "$LOCAL_IP" ] && echo "$LOCAL_IP" && return
+    done
+    # Fallback: use ip command (Linux)
+    LOCAL_IP=$(ip addr show 2>/dev/null | grep "inet " | grep -v "127.0.0.1" | head -1 | awk '{print $2}' | cut -d/ -f1)
+    [ -n "$LOCAL_IP" ] && echo "$LOCAL_IP"
+}
+
+LOCAL_IP=$(get_local_ip)
+
+echo "Server starting..."
 echo ""
-echo "アクセスURL:"
-echo "  ローカル: http://localhost:8000"
-if [ -n "$LOCAL_IP" ]; then
-    echo "  ネットワーク: http://$LOCAL_IP:8000"
-fi
+echo "Access URLs:"
+echo "  Local:   http://localhost:8000"
+[ -n "$LOCAL_IP" ] && echo "  Network: http://$LOCAL_IP:8000"
 echo ""
-echo "管理画面: /admin"
+echo "Admin:   /admin"
+echo "Login:   /login"
 echo ""
-echo "停止するには Ctrl+C を押してください"
+echo "Press Ctrl+C to stop"
 echo "=========================================="
 echo ""
 
-# サーバーを起動
+# Start server
 uvicorn src.main:app --host 0.0.0.0 --port 8000
 

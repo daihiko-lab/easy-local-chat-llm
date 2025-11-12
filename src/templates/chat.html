@@ -1,14 +1,20 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat Room</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <!-- Highlight.js CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <!-- Highlight.js for code syntax highlighting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <body>
     <div class="container">
-        <div class="chat-container">
+        <div class="chat-container" id="chatContainer">
             <div class="chat-header">
                 <h1>Chat Room</h1>
                 <div class="connection-info">
@@ -19,9 +25,9 @@
                     <div id="client-id" class="client-id">Client ID: N/A</div>
                     <div id="session-info" class="session-info">
                         <span class="session-label">Session:</span> 
-                        <span id="session-id">{{ session_id }}</span>
+                        <span id="session-id">{% if session_id %}{{ session_id }}{% else %}Connecting...{% endif %}</span>
                     </div>
-                    <button id="logout-btn" class="logout-btn" onclick="logout()">ログアウト</button>
+                    <button id="logout-btn" class="logout-btn" onclick="logout()">Logout</button>
                 </div>
             </div>
             <div class="chat-messages" id="messageArea"></div>
@@ -30,7 +36,42 @@
                 <button onclick="sendMessage()">Send</button>
             </div>
         </div>
+        
+        <!-- アンケート画面（初期は非表示） -->
+        <div class="survey-container" id="surveyContainer" style="display: none;">
+            <div class="survey-content">
+                <h2 id="surveyTitle">アンケート</h2>
+                <p id="surveyDescription" class="survey-description"></p>
+                
+                <form id="surveyForm">
+                    <div id="surveyQuestions"></div>
+                    
+                    <div class="survey-actions">
+                        <button type="submit" class="survey-submit-btn">送信</button>
+                    </div>
+                </form>
+                
+                <div id="surveyThankYou" class="survey-thank-you" style="display: none;">
+                    <h3>ご回答ありがとうございました</h3>
+                    <p>まもなくログイン画面に戻ります...</p>
+                </div>
+            </div>
+        </div>
     </div>
+    <script>
+        // テンプレートからパラメータを埋め込む
+        window.CHAT_CONFIG = {
+            token: {{ token | tojson }},
+            client_id: {{ client_id | tojson }},
+            session_id: {{ (session_id if session_id else '') | tojson }},
+            condition_id: {{ (condition.condition_id if condition else '') | tojson }},
+            instruction_text: {{ (condition.instruction_text if condition and condition.instruction_text else '') | tojson }},
+            time_limit_minutes: {{ condition.time_limit_minutes if condition and condition.time_limit_minutes else 'null' }},
+            survey_questions: {{ (condition.survey_questions | tojson if condition and condition.survey_questions else '[]') }},
+            survey_title: {{ (condition.survey_title if condition and condition.survey_title else 'アンケート') | tojson }},
+            survey_description: {{ (condition.survey_description if condition and condition.survey_description else '') | tojson }}
+        };
+    </script>
     <script src="{{ url_for('static', path='/js/chat.js') }}"></script>
 </body>
 </html> 

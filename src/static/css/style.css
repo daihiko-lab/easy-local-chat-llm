@@ -154,6 +154,159 @@ body {
     background-color: #f5f5f5;
 }
 
+.message.bot-message {
+    background: linear-gradient(135deg, #e8f5e9 0%, #f1f8f4 100%);
+    border-left: 4px solid #4caf50;
+}
+
+.bot-icon {
+    /* ボットアイコンの色もランダムに生成されるため、固定色は削除 */
+}
+
+/* Markdown表示用のスタイル */
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+    margin-top: 1em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.message-content h1 {
+    font-size: 1.8em;
+    border-bottom: 2px solid #eaecef;
+    padding-bottom: 0.3em;
+}
+
+.message-content h2 {
+    font-size: 1.5em;
+    border-bottom: 1px solid #eaecef;
+    padding-bottom: 0.3em;
+}
+
+.message-content h3 {
+    font-size: 1.25em;
+}
+
+.message-content h4 {
+    font-size: 1.1em;
+}
+
+.message-content p {
+    margin: 0.5em 0;
+    line-height: 1.6;
+}
+
+.message-content ul,
+.message-content ol {
+    margin: 0.5em 0;
+    padding-left: 2em;
+}
+
+.message-content li {
+    margin: 0.25em 0;
+    line-height: 1.5;
+}
+
+.message-content pre {
+    background-color: #1e1e1e;
+    border-radius: 6px;
+    padding: 1em;
+    margin: 1em 0;
+    overflow-x: auto;
+}
+
+.message-content pre code {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-size: 0.9em;
+    color: #d4d4d4;
+    line-height: 1.5;
+}
+
+.message-content code.inline-code {
+    background-color: rgba(175, 184, 193, 0.2);
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+    color: #333;
+}
+
+.message-content blockquote {
+    margin: 0.5em 0;
+    padding: 0.5em 1em;
+    border-left: 4px solid #dfe2e5;
+    background-color: #f6f8fa;
+    color: #6a737d;
+}
+
+.message-content table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: 100%;
+}
+
+.message-content table th,
+.message-content table td {
+    border: 1px solid #dfe2e5;
+    padding: 0.5em 1em;
+    text-align: left;
+}
+
+.message-content table th {
+    background-color: #f6f8fa;
+    font-weight: 600;
+}
+
+.message-content table tr:nth-child(even) {
+    background-color: #f6f8fa;
+}
+
+.message-content a {
+    color: #0366d6;
+    text-decoration: none;
+}
+
+.message-content a:hover {
+    text-decoration: underline;
+}
+
+.message-content hr {
+    margin: 1.5em 0;
+    border: 0;
+    border-top: 2px solid #eaecef;
+}
+
+.message-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    margin: 0.5em 0;
+}
+
+/* コードブロックのシンタックスハイライト調整 */
+.message-content .hljs {
+    display: block;
+    overflow-x: auto;
+    background: #1e1e1e !important;
+    color: #d4d4d4;
+}
+
+/* ボットメッセージのMarkdownコンテンツの最初と最後のマージンを調整 */
+.bot-message .message-content > *:first-child {
+    margin-top: 0;
+}
+
+.bot-message .message-content > *:last-child {
+    margin-bottom: 0;
+}
+
 .timestamp {
     color: #999999;
     font-size: 0.8rem;
@@ -553,5 +706,273 @@ body {
     .login-container {
         margin: 0.5rem auto;
         padding: 1rem;
+    }
+}
+
+/* ========== アンケート用スタイル ========== */
+
+.survey-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100vh;
+    background-color: #f8f9fa;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    overflow-y: auto;
+    z-index: 1000;
+}
+
+.survey-content {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    padding: 40px;
+    max-width: 800px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.survey-content h2 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+    font-size: 28px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.survey-description {
+    color: #5a6c7d;
+    margin-bottom: 30px;
+    text-align: center;
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+.survey-question {
+    margin-bottom: 30px;
+    padding-bottom: 30px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.survey-question:last-child {
+    border-bottom: none;
+}
+
+.survey-question-label {
+    display: block;
+    font-size: 18px;
+    font-weight: 500;
+    color: #2c3e50;
+    margin-bottom: 15px;
+    line-height: 1.4;
+}
+
+.required-mark {
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+/* リッカート尺度 */
+.likert-scale {
+    margin-top: 10px;
+}
+
+.likert-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    padding: 0 10px;
+}
+
+.likert-label-min,
+.likert-label-max {
+    font-size: 14px;
+    color: #5a6c7d;
+    font-style: italic;
+}
+
+.likert-options {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    gap: 10px;
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.likert-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    padding: 10px;
+    border-radius: 8px;
+    transition: background-color 0.2s;
+}
+
+.likert-option:hover {
+    background: rgba(52, 152, 219, 0.1);
+}
+
+.likert-option input[type="radio"] {
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    margin-bottom: 5px;
+}
+
+.likert-option span {
+    font-size: 16px;
+    font-weight: 500;
+    color: #2c3e50;
+}
+
+/* 選択肢（単一・複数） */
+.choice-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.choice-option {
+    display: flex;
+    align-items: center;
+    padding: 12px 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.choice-option:hover {
+    background: rgba(52, 152, 219, 0.1);
+}
+
+.choice-option input[type="radio"],
+.choice-option input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    margin-right: 12px;
+}
+
+.choice-option span {
+    font-size: 16px;
+    color: #2c3e50;
+}
+
+/* 自由記述 */
+.survey-textarea {
+    width: 100%;
+    padding: 12px 15px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 16px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    resize: vertical;
+    transition: border-color 0.2s;
+    margin-top: 10px;
+}
+
+.survey-textarea:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+/* 送信ボタン */
+.survey-actions {
+    margin-top: 40px;
+    text-align: center;
+}
+
+.survey-submit-btn {
+    background-color: #3498db;
+    color: white;
+    padding: 14px 40px;
+    border: none;
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.survey-submit-btn:hover {
+    background-color: #2980b9;
+}
+
+.survey-submit-btn:active {
+    background-color: #21618c;
+}
+
+/* 完了メッセージ */
+.survey-thank-you {
+    text-align: center;
+    padding: 40px;
+}
+
+.survey-thank-you h3 {
+    color: #27ae60;
+    font-size: 24px;
+    margin-bottom: 15px;
+}
+
+.survey-thank-you p {
+    color: #5a6c7d;
+    font-size: 16px;
+}
+
+/* レスポンシブデザイン */
+@media (max-width: 768px) {
+    .survey-content {
+        padding: 20px;
+        max-height: 95vh;
+    }
+    
+    .survey-content h2 {
+        font-size: 24px;
+    }
+    
+    .survey-question-label {
+        font-size: 16px;
+    }
+    
+    .likert-options {
+        padding: 15px 10px;
+        gap: 5px;
+    }
+    
+    .likert-option {
+        padding: 8px;
+    }
+    
+    .likert-option input[type="radio"] {
+        width: 20px;
+        height: 20px;
+    }
+    
+    .likert-option span {
+        font-size: 14px;
+    }
+    
+    .choice-option {
+        padding: 10px 12px;
+    }
+    
+    .choice-option span {
+        font-size: 15px;
+    }
+    
+    .survey-submit-btn {
+        width: 100%;
+        padding: 12px 20px;
+        font-size: 16px;
     }
 } 
