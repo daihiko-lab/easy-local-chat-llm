@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Chat Room</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
     <!-- Highlight.js CSS -->
@@ -61,17 +61,13 @@
     <script>
         // テンプレートからパラメータを埋め込む
         window.CHAT_CONFIG = {
-            token: {{ token | tojson }},
-            client_id: {{ client_id | tojson }},
-            session_id: {{ (session_id if session_id else '') | tojson }},
-            condition_id: {{ (condition.condition_id if condition else '') | tojson }},
-            instruction_text: {{ (condition.instruction_text if condition and condition.instruction_text else '') | tojson }},
-            time_limit_minutes: {{ condition.time_limit_minutes if condition and condition.time_limit_minutes else 'null' }},
-            survey_questions: {{ (condition.survey_questions | tojson if condition and condition.survey_questions else '[]') }},
-            survey_title: {{ (condition.survey_title if condition and condition.survey_title else 'アンケート') | tojson }},
-            survey_description: {{ (condition.survey_description if condition and condition.survey_description else '') | tojson }}
+            token: "{{ token }}",
+            client_id: "{{ client_id }}",
+            session_id: "{{ session_id if session_id else '' }}",
+            experiment_id: "{{ experiment.experiment_id if experiment else '' }}"
         };
     </script>
-    <script src="{{ url_for('static', path='/js/chat.js') }}"></script>
+    <script src="{{ url_for('static', path='/js/experiment_flow.js') }}?v=20251116_0540"></script>
+    <script src="{{ url_for('static', path='/js/chat.js') }}?v=20251116_0540"></script>
 </body>
 </html> 

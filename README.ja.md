@@ -15,6 +15,7 @@ WebSocketによるリアルタイム通信と、Ollama（e.g., Gemma3）を使�
 - **リアルタイムチャット**: WebSocketによる低遅延通信
 - **AIボット**: ローカルLLM（e.g., Gemma3）による自動応答、会話履歴保持
 - **実験管理**: 複数の実験条件を作成・管理、ランダム割り当て
+- **🆕 多段階実験フロー**: 同意書、事前質問紙、チャット、事後質問紙、デブリーフィングなど、任意のステップを組み合わせた実験デザインに対応
 - **データ管理**: セッション・メッセージの自動保存、JSON/CSV形式でのエクスポート
 - **管理画面**: データ可視化、リアルタイム統計、セッション監視
 
@@ -241,6 +242,7 @@ rm data/admin_credentials.json
 
 - [CHANGELOG.md](CHANGELOG.md) - 変更履歴
 - [deployment/README.md](deployment/README.md) - デプロイメントガイド
+- **[EXPERIMENT_FLOW_GUIDE.md](EXPERIMENT_FLOW_GUIDE.md)** - 🆕 多段階実験フローの使い方
 - API: `http://localhost:8000/docs` （起動後）
 
 ## 🔗 参考リンク

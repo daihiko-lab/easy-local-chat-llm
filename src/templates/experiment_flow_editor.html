@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flow Editor - {{ experiment.experiment_name }}</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=20251116_0500">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #f5f7fa;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+        }
+        
+        .flow-editor-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .flow-editor-header {
+            background: white;
+            border-bottom: 2px solid #e0e0e0;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        
+        .flow-editor-title {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .flow-editor-title h1 {
+            margin: 0;
+            font-size: 24px;
+            color: #2c3e50;
+        }
+        
+        .flow-editor-title .experiment-name {
+            color: #7f8c8d;
+            font-size: 14px;
+            font-weight: normal;
+        }
+        
+        .flow-editor-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        .flow-editor-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+        }
+        
+        .flow-builder-fullpage {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .flow-builder-header {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e8f4f8;
+        }
+        
+        .flow-builder-header h2 {
+            margin: 0 0 8px 0;
+            color: #2c3e50;
+            font-size: 20px;
+        }
+        
+        .flow-builder-header p {
+            margin: 0;
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-back {
+            background: #95a5a6;
+            color: white;
+        }
+        
+        .btn-back:hover {
+            background: #7f8c8d;
+        }
+        
+        .btn-primary {
+            background: #2684FF;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #0065FF;
+        }
+        
+        .btn-success {
+            background: #27ae60;
+            color: white;
+            font-size: 16px;
+            padding: 12px 30px;
+        }
+        
+        .btn-success:hover {
+            background: #229954;
+        }
+        
+        .save-status {
+            font-size: 13px;
+            color: #27ae60;
+            display: none;
+        }
+        
+        .save-status.show {
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="flow-editor-container">
+        <!-- Header -->
+        <div class="flow-editor-header">
+            <div class="flow-editor-title">
+                <h1>🔄 Experiment Flow Editor</h1>
+                <span class="experiment-name">{{ experiment.experiment_name }}</span>
+            </div>
+            <div class="flow-editor-actions">
+                <span class="save-status" id="saveStatus">✓ Saved</span>
+                <a href="/admin/experiment/{{ experiment.experiment_id }}" class="btn btn-back">
+                    ← Back to Experiment
+                </a>
+                <button class="btn btn-success" onclick="saveFlowAndReturn()">
+                    💾 Save Flow
+                </button>
+            </div>
+        </div>
+        
+        <!-- Flow Editor Body -->
+        <div class="flow-editor-body">
+            <div class="flow-builder-fullpage">
+                <div class="flow-builder-header">
+                    <h2>Flow Builder</h2>
+                    <p>Build your experiment flow by adding blocks. Drag to reorder.</p>
+                </div>
+                
+                <!-- Flow blocks will be rendered here -->
+                <div id="flowBlocksContainer"></div>
+                
+                <!-- Add Block Button -->
+                <div style="display: flex; justify-content: center; padding: 25px 0;">
+                    <button class="btn btn-primary" onclick="showAddBlockMenu()" style="font-size: 15px; padding: 12px 24px;">
+                        <span style="font-size: 18px;">+</span>
+                        <span>Add Block</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Step Edit Modal (kept for editing individual steps) -->
+    <div id="stepEditModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 700px; height: auto; max-height: 90vh;">
+            <div class="modal-header">
+                <h2 id="stepEditModalTitle">Edit Step</h2>
+                <button class="close" onclick="closeStepEditModal()" style="font-size: 28px; border: none; background: none; cursor: pointer; color: #999;">&times;</button>
+            </div>
+            <div class="modal-body" style="overflow-y: auto;">
+                <form id="stepEditForm"></form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeStepEditModal()">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveStepEdit()">💾 Save</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Experiment data as JSON -->
+    <script id="experimentData" type="application/json">{{ experiment_json | safe }}</script>
+    
+    <script>
+        // Parse experiment data from JSON script tag
+        window.currentExperiment = JSON.parse(document.getElementById('experimentData').textContent);
+        window.experimentId = "{{ experiment.experiment_id }}";
+    </script>
+    
+    <script src="/static/js/experiment_flow_blocks.js?v=20251116_0540"></script>
+    <script src="/static/js/experiment_detail_step_editor.js?v=20251116_0540"></script>
+    <script>
+        // Initialize flow editor
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('[Flow Editor] Initializing full-page flow editor...');
+            loadExperimentFlow();
+        });
+        
+        function loadExperimentFlow() {
+            console.log('[Flow Editor] Loading experiment flow...');
+            const experiment = window.currentExperiment;
+            
+            if (experiment && experiment.experiment_flow) {
+                window.currentFlow = experiment.experiment_flow;
+                renderSteps(experiment.experiment_flow);
+                console.log(`[Flow Editor] ✅ Flow loaded: ${experiment.experiment_flow.length} steps`);
+            } else {
+                window.currentFlow = [];
+                renderSteps([]);
+                console.log('[Flow Editor] No flow found, starting empty');
+            }
+        }
+        
+        function renderSteps(steps) {
+            const container = document.getElementById('flowBlocksContainer');
+            if (!container) {
+                console.error('[Flow Editor] flowBlocksContainer not found!');
+                return;
+            }
+            
+            if (typeof window.renderFlowBlocks === 'function') {
+                window.renderFlowBlocks(steps, container);
+            } else {
+                console.error('[Flow Editor] renderFlowBlocks function not found!');
+                container.innerHTML = '<p style="color: #e74c3c;">Error: Flow rendering function not loaded</p>';
+            }
+        }
+        
+        async function saveFlowAndReturn() {
+            console.log('[Flow Editor] Saving flow...');
+            const saveBtn = document.querySelector('.btn-success');
+            const saveStatus = document.getElementById('saveStatus');
+            
+            saveBtn.disabled = true;
+            saveBtn.textContent = '💾 Saving...';
+            
+            try {
+                const response = await fetch(`/api/experiments/${window.experimentId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        experiment_flow: window.currentFlow
+                    })
+                });
+                
+                if (response.ok) {
+                    console.log('[Flow Editor] ✅ Flow saved successfully');
+                    saveStatus.textContent = '✓ Saved';
+                    saveStatus.classList.add('show');
+                    
+                    setTimeout(() => {
+                        saveStatus.classList.remove('show');
+                    }, 2000);
+                    
+                    saveBtn.textContent = '💾 Save Flow';
+                    saveBtn.disabled = false;
+                    
+                    // Redirect back to experiment detail page
+                    setTimeout(() => {
+                        window.location.href = `/admin/experiment/${window.experimentId}`;
+                    }, 500);
+                } else {
+                    const error = await response.json();
+                    alert(`Failed to save flow: ${error.detail || 'Unknown error'}`);
+                    saveBtn.textContent = '💾 Save Flow';
+                    saveBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('[Flow Editor] Error saving flow:', error);
+                alert('Error saving flow. Please try again.');
+                saveBtn.textContent = '💾 Save Flow';
+                saveBtn.disabled = false;
+            }
+        }
+        
+        // Export functions to global scope for onclick handlers
+        window.saveFlowAndReturn = saveFlowAndReturn;
+    </script>
+</body>
+</html>
+

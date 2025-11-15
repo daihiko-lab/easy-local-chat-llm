@@ -81,6 +81,7 @@ class DataExporter:
         # セッション基本情報
         writer.writerow(['Section', 'Key', 'Value'])
         writer.writerow(['Session', 'session_id', session_summary['session_id']])
+        writer.writerow(['Session', 'participant_code', session_summary.get('participant_code', '')])
         writer.writerow(['Session', 'created_at', session_summary['created_at']])
         writer.writerow(['Session', 'ended_at', session_summary.get('ended_at', '')])
         writer.writerow(['Session', 'status', session_summary['status']])
@@ -125,6 +126,7 @@ class DataExporter:
         # ヘッダー
         writer.writerow([
             'session_id',
+            'participant_code',
             'created_at',
             'ended_at',
             'status',
@@ -140,6 +142,7 @@ class DataExporter:
         for session in sessions:
             writer.writerow([
                 session.session_id,
+                session.participant_code or '',
                 session.created_at,
                 session.ended_at or '',
                 session.status,
@@ -212,7 +215,7 @@ class DataExporter:
             # アンケート回答がない場合は空のCSVを返す
             output = io.StringIO()
             writer = csv.writer(output)
-            writer.writerow(['session_id', 'client_id', 'question_id', 'answer', 'answered_at'])
+            writer.writerow(['session_id', 'participant_code', 'client_id', 'question_id', 'answer', 'answered_at'])
             return output.getvalue()
         
         output = io.StringIO()
@@ -221,6 +224,7 @@ class DataExporter:
         # ヘッダー
         writer.writerow([
             'session_id',
+            'participant_code',
             'client_id',
             'experiment_group',
             'question_id',
@@ -238,6 +242,7 @@ class DataExporter:
                 
                 writer.writerow([
                     session_id,
+                    session.participant_code or '',
                     client_id,
                     session.experiment_group or '',
                     response.question_id,
@@ -280,8 +285,10 @@ class DataExporter:
         writer.writerow([
             'experiment_id',
             'session_id',
+            'participant_code',
             'client_id',
             'experiment_group',
+            'condition_id',
             'question_id',
             'answer',
             'answered_at'
@@ -299,8 +306,10 @@ class DataExporter:
                     writer.writerow([
                         experiment_id,
                         session.session_id,
+                        session.participant_code or '',
                         client_id,
                         session.experiment_group or '',
+                        session.condition_id or '',
                         response.question_id,
                         answer,
                         response.answered_at
@@ -391,6 +400,7 @@ class DataExporter:
         writer.writerow([
             'experiment_id',
             'session_id',
+            'participant_code',
             'experiment_group',
             'condition_id',
             'created_at',
@@ -417,6 +427,7 @@ class DataExporter:
             writer.writerow([
                 experiment_id,
                 session.session_id,
+                session.participant_code or '',
                 session.experiment_group or '',
                 session.condition_id or '',
                 session.created_at,

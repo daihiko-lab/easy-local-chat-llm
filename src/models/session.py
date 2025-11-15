@@ -45,9 +45,17 @@ class Session(BaseModel):
     experiment_id: Optional[str] = None  # 所属する実験ID
     condition_id: Optional[str] = None  # 使用された条件ID
     experiment_group: Optional[str] = None  # 実験条件名（割り当てられた条件）
+    participant_code: Optional[str] = None  # 🆕 参加者コード
+    client_id: Optional[str] = None  # 🆕 クライアントID（表示・追跡用）
     
     # アンケート回答（参加者ごとに保存）
     survey_responses: Dict[str, List[SurveyResponse]] = Field(default_factory=dict)  # {client_id: [SurveyResponse, ...]}
+    
+    # 🆕 多段階実験フロー管理
+    current_step_index: int = 0  # 現在のステップインデックス（0始まり）
+    completed_steps: List[str] = Field(default_factory=list)  # 完了したステップのID一覧
+    step_responses: Dict[str, Dict[str, Any]] = Field(default_factory=dict)  # {step_id: {client_id: response_data}}
+    completed_participants: List[str] = Field(default_factory=list)  # 実験を完了した参加者のclient_id一覧
     
     @staticmethod
     def hash_password(password: str) -> str:
@@ -139,6 +147,39 @@ class Session(BaseModel):
     def get_survey_response(self, client_id: str) -> Optional[List[SurveyResponse]]:
         """アンケート回答を取得"""
         return self.survey_responses.get(client_id)
+    
+    # 🆕 フロー管理メソッド
+    def advance_step(self):
+        """次のステップへ進む"""
+        self.current_step_index += 1
+        self.update_activity()
+    
+    def complete_step(self, step_id: str):
+        """ステップを完了としてマーク"""
+        if step_id not in self.completed_steps:
+            self.completed_steps.append(step_id)
+            self.update_activity()
+    
+    def add_step_response(self, step_id: str, client_id: str, response_data: Any):
+        """ステップの回答を保存"""
+        if step_id not in self.step_responses:
+            self.step_responses[step_id] = {}
+        self.step_responses[step_id][client_id] = response_data
+        self.update_activity()
+    
+    def mark_participant_completed(self, client_id: str):
+        """参加者を実験完了としてマーク"""
+        if client_id not in self.completed_participants:
+            self.completed_participants.append(client_id)
+            self.update_activity()
+    
+    def is_participant_completed(self, client_id: str) -> bool:
+        """参加者が実験を完了済みかチェック"""
+        return client_id in self.completed_participants
+    
+    def get_step_response(self, step_id: str, client_id: str) -> Optional[Any]:
+        """ステップの回答を取得"""
+        return self.step_responses.get(step_id, {}).get(client_id)
     
     def to_dict(self):
         """辞書形式に変換"""

@@ -31,6 +31,43 @@ class SurveyQuestion(BaseModel):
         return cls(**data)
 
 
+class ExperimentStep(BaseModel):
+    """実験フローの各ステップ"""
+    step_id: str  # ステップID（例: "step1", "consent", "pre_survey"）
+    step_type: str  # ステップタイプ: "consent", "instruction", "survey", "chat", "debriefing"
+    title: Optional[str] = None  # ステップのタイトル
+    
+    # 同意書・教示文・デブリーフィング用
+    content: Optional[str] = None  # 表示するテキスト内容
+    
+    # アンケート用
+    survey_questions: Optional[List[SurveyQuestion]] = None  # 質問リスト
+    survey_description: Optional[str] = None  # アンケート説明文
+    
+    # チャット用
+    time_limit_minutes: Optional[int] = None  # チャット時間制限（分）
+    
+    # ボタンテキストのカスタマイズ
+    button_text: Optional[str] = None  # 次へ進むボタンのテキスト（例: "同意する", "次へ", "送信"）
+    
+    # 必須ステップかどうか
+    required: bool = True  # Falseの場合スキップ可能
+    
+    def to_dict(self):
+        data = self.model_dump()
+        # survey_questionsをシリアライズ
+        if self.survey_questions:
+            data['survey_questions'] = [q.to_dict() for q in self.survey_questions]
+        return data
+    
+    @classmethod
+    def from_dict(cls, data: dict):
+        # survey_questionsをデシリアライズ
+        if 'survey_questions' in data and data['survey_questions']:
+            data['survey_questions'] = [SurveyQuestion.from_dict(q) for q in data['survey_questions']]
+        return cls(**data)
+
+
 class Condition(BaseModel):
     """実験条件（Condition）モデル"""
     condition_id: str
@@ -50,11 +87,12 @@ class Condition(BaseModel):
     experiment_group: Optional[str] = None  # 実験条件名（例: "条件A", "統制群"）
     weight: int = 1  # ランダム割り当て時の重み（デフォルト: 1 = 均等）
     
-    # 実験デザイン
-    instruction_text: Optional[str] = None  # 参加者への教示文
-    time_limit_minutes: Optional[int] = None  # タイムリミット（分）
+    # 🆕 多段階実験フロー（汎用的な設計）
+    experiment_flow: Optional[List[ExperimentStep]] = None  # 実験フローの定義
     
-    # アンケート設定
+    # 🔻 旧形式（後方互換性のため残す、experiment_flowが優先）
+    instruction_text: Optional[str] = None  # 参加者への教示文（想起ステップ）
+    time_limit_minutes: Optional[int] = None  # タイムリミット（分）
     survey_questions: Optional[List[SurveyQuestion]] = None  # アンケート質問リスト
     survey_title: Optional[str] = None  # アンケートタイトル
     survey_description: Optional[str] = None  # アンケート説明文
@@ -67,9 +105,12 @@ class Condition(BaseModel):
     def to_dict(self):
         """辞書形式に変換"""
         data = self.model_dump()
-        # survey_questionsをシリアライズ
+        # survey_questionsをシリアライズ（旧形式）
         if self.survey_questions:
             data['survey_questions'] = [q.to_dict() for q in self.survey_questions]
+        # experiment_flowをシリアライズ（新形式）
+        if self.experiment_flow:
+            data['experiment_flow'] = [step.to_dict() for step in self.experiment_flow]
         return data
     
     def to_json(self):
@@ -79,13 +120,65 @@ class Condition(BaseModel):
     @classmethod
     def from_dict(cls, data: dict):
         """辞書からインスタンスを作成"""
-        # survey_questionsをデシリアライズ
+        # survey_questionsをデシリアライズ（旧形式）
         if 'survey_questions' in data and data['survey_questions']:
             data['survey_questions'] = [SurveyQuestion.from_dict(q) for q in data['survey_questions']]
+        # experiment_flowをデシリアライズ（新形式）
+        if 'experiment_flow' in data and data['experiment_flow']:
+            data['experiment_flow'] = [ExperimentStep.from_dict(step) for step in data['experiment_flow']]
         return cls(**data)
     
     @classmethod
     def from_json(cls, json_str: str):
         """JSON文字列からインスタンスを作成"""
         return cls.from_dict(json.loads(json_str))
+    
+    def get_effective_flow(self) -> Optional[List[ExperimentStep]]:
+        """
+        有効な実験フローを取得
+        experiment_flowが設定されていればそれを返す
+        なければ旧形式から自動生成
+        """
+        if self.experiment_flow:
+            return self.experiment_flow
+        
+        # 旧形式から自動生成
+        return self._convert_legacy_to_flow()
+    
+    def _convert_legacy_to_flow(self) -> Optional[List[ExperimentStep]]:
+        """旧形式のフィールドをフローに変換"""
+        steps = []
+        
+        # 教示文があればinstructionステップとして追加
+        if self.instruction_text:
+            steps.append(ExperimentStep(
+                step_id="instruction",
+                step_type="instruction",
+                title="実験の説明",
+                content=self.instruction_text,
+                button_text="開始する",
+                required=True
+            ))
+        
+        # チャットステップを追加
+        steps.append(ExperimentStep(
+            step_id="chat",
+            step_type="chat",
+            time_limit_minutes=self.time_limit_minutes,
+            required=True
+        ))
+        
+        # アンケートがあればsurveyステップとして追加
+        if self.survey_questions:
+            steps.append(ExperimentStep(
+                step_id="survey",
+                step_type="survey",
+                title=self.survey_title or "アンケート",
+                survey_description=self.survey_description,
+                survey_questions=self.survey_questions,
+                button_text="送信",
+                required=True
+            ))
+        
+        return steps if steps else None
 

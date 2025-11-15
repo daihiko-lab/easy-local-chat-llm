@@ -5,6 +5,119 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Experiment Detail - {{ experiment.name }}</title>
     <style>
+        /* ========== Two Column Layout ========== */
+        .two-column-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        @media (max-width: 900px) {
+            .two-column-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* ========== Finder-style Flow Editor ========== */
+        .flow-builder {
+            background: #ffffff;
+            padding: 0;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            overflow: hidden;
+        }
+        
+        .flow-block {
+            background: #ffffff;
+            border: none;
+            border-bottom: 1px solid #e5e7eb;
+            margin-bottom: 0;
+            transition: background 0.12s ease;
+            cursor: pointer;
+        }
+        
+        .flow-block:last-child {
+            border-bottom: none;
+        }
+        
+        .flow-block:hover {
+            background: #f3f4f6;
+        }
+        
+        .flow-block.branch-block {
+            background: #fafafa;
+        }
+        
+        .flow-block.branch-block:hover {
+            background: #f5f5f5;
+        }
+        
+        .flow-block-header {
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: none;
+            min-height: 38px;
+        }
+        
+        .flow-block-type {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 13px;
+            font-weight: 400;
+            color: #374151;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+        }
+        
+        .flow-block-body {
+            padding: 4px 12px 8px 44px;
+            color: #6b7280;
+            font-size: 11px;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+        }
+        
+        .flow-connector {
+            display: none;
+        }
+        
+        .flow-connector-line {
+            display: none;
+        }
+        
+        .add-block-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: white;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            color: #374151;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin: 8px 12px;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+        }
+        
+        .add-block-btn:hover {
+            background: #f9fafb;
+            border-color: #9ca3af;
+        }
+        
+        .add-block-insert-btn {
+            display: none;
+        }
+        
+    </style>
+    <style>
         * {
             margin: 0;
             padding: 0;
@@ -234,7 +347,7 @@
         </div>
 
         <div class="header">
-            <div>
+            <div style="flex: 1;">
                 <h1 style="margin: 0;">
                     📊 {{ experiment.name }}
                     <span class="experiment-status status-{{ experiment.status }}">{{ experiment.status|title }}</span>
@@ -259,37 +372,43 @@
             </div>
         </div>
 
-        <!-- Statistics -->
-        <div class="section">
-            <h2>📊 Statistics</h2>
-            <div class="stats-grid" id="statsGrid">
-                <div class="stat-card">
-                    <div class="stat-label">Total Conditions</div>
-                    <div class="stat-value" id="totalConditions">-</div>
+        <!-- Two Column Layout: Flow + Sessions -->
+        <div class="two-column-grid">
+            
+            <!-- Left Column: Experiment Flow -->
+            <div class="section" style="margin-bottom: 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin: 0;">🌊 Experiment Flow</h2>
+                    <a href="/admin/experiment/{{ experiment.experiment_id }}/flow" class="btn btn-primary btn-small" style="text-decoration: none;">
+                        🔧 Manage Flow
+                    </a>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-label">Total Participants</div>
-                    <div class="stat-value" id="totalParticipants">{{ experiment.total_participants }}</div>
+                <div id="flowPreview" style="background: white; border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; min-height: 200px;">
+                    <p style="color: #999; text-align: center; padding: 40px;">Edit flow to build your experiment</p>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-label">Total Sessions</div>
-                    <div class="stat-value" id="totalSessions">{{ experiment.total_sessions }}</div>
+                <div style="margin-top: 12px; padding: 12px; background: #f0f9ff; border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 13px; color: #1e40af;">
+                    <strong>💡 Tip:</strong> Use Branch blocks to set up conditional logic. Each branch path becomes an experimental condition.
                 </div>
             </div>
-        </div>
 
-        <!-- Conditions Management -->
-        <div class="section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h2 style="margin: 0;">📋 Experimental Conditions</h2>
-                <button class="btn btn-primary btn-small" onclick="showConditionModal(true)">+ Add Condition</button>
+            <!-- Right Column: Participant Codes -->
+            <div class="section" style="margin-bottom: 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin: 0;">🎫 Participant Codes</h2>
+                    {% if experiment.status == 'planning' or experiment.status == 'active' %}
+                    <button class="btn btn-small" onclick="prepareParticipantInfo()" style="background: #9b59b6; color: white;">
+                        ➕ Generate Codes
+                    </button>
+                    {% endif %}
+                </div>
+                <div id="participantCodesDisplay" style="margin-top: 15px;">
+                    <p style="color: #999; text-align: center;">No participant codes generated yet.</p>
+                </div>
             </div>
-            <div id="conditionsList" class="condition-list">
-                <p style="color: #999; text-align: center; padding: 40px;">Loading conditions...</p>
-            </div>
-        </div>
-
-        <!-- Sessions for this Experiment -->
+            
+        </div> <!-- End Two Column Layout -->
+        
+        <!-- Sessions Section (Full Width) -->
         <div class="section">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <h2 style="margin: 0; cursor: pointer; user-select: none;" onclick="toggleSessions()">
@@ -302,450 +421,29 @@
             </div>
         </div>
     </div>
-    <!-- Condition Modal -->
-    <div id="conditionModal" class="modal">
-        <div class="modal-content">
+
+    <!-- Step Edit Modal -->
+    <div id="stepEditModal" class="modal">
+        <div class="modal-content" style="max-width: 700px;">
             <div class="modal-header">
-                <h2>Condition Settings</h2>
+                <h2 id="stepEditModalTitle">✏️ Edit Step</h2>
+                <button class="btn btn-small btn-secondary" onclick="closeStepEditModal()" style="margin-left: auto;">✕ Close</button>
             </div>
-            <div class="modal-body">
-                <form id="conditionForm">
-                    <div class="form-group">
-                        <label for="conditionName">Condition Name *</label>
-                        <input type="text" id="conditionName" placeholder="e.g., Condition A, Control Group" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="conditionDescription">Description (Optional)</label>
-                        <input type="text" id="conditionDescription" placeholder="Brief description of this condition">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="botModel">Bot Model *</label>
-                        <select id="botModel" required>
-                            <option value="">Loading...</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="systemPrompt">System Prompt</label>
-                        <textarea id="systemPrompt" rows="4" placeholder="e.g., You are a helpful and friendly AI assistant. Please answer user questions politely."></textarea>
-                        <div class="form-hint">This defines how the bot will behave for this condition (optional - leave empty to use default)</div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="instructionText">Instruction Text (教示文)</label>
-                        <textarea id="instructionText" rows="4" placeholder="e.g., このチャットでは、AIと自由に会話をしてください。制限時間は10分です。"></textarea>
-                        <div class="form-hint">📋 This will be shown to participants at the start of the session (optional)</div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="timeLimitMinutes">Time Limit (タイムリミット)</label>
-                        <input type="number" id="timeLimitMinutes" min="1" max="180" placeholder="e.g., 10">
-                        <div class="form-hint">⏱️ Session time limit in minutes (optional - leave empty for no limit)</div>
-                    </div>
-                </form>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div id="stepEditForm">
+                    <!-- Dynamic content will be inserted here -->
+                </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeConditionModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveCondition()">Save Condition</button>
+                <button class="btn btn-secondary" onclick="closeStepEditModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveStepEdit()">💾 Save Changes</button>
             </div>
         </div>
     </div>
 
-    <script>
-        const experimentId = document.body.dataset.experimentId;
-        let currentEditingConditionId = null;
-
-        document.addEventListener('DOMContentLoaded', function() {
-            loadConditions();
-            loadSessions();
-            loadAvailableModels();
-        });
-        
-        async function loadAvailableModels() {
-            try {
-                const response = await fetch('/api/ollama/models');
-                if (!response.ok) return;
-                
-                const data = await response.json();
-                const models = data.models || [];
-                
-                const select = document.getElementById('botModel');
-                // 最初に空のオプションを追加
-                select.innerHTML = '<option value="">-- Select a model --</option>' + 
-                    models.map(model => `<option value="${model}">${model}</option>`).join('');
-                
-                // デフォルト選択（推奨モデルがあれば、なければ空）
-                const preferredModels = ['gemma3:4b', 'gemma3:2b', 'llama3.2:3b'];
-                const availablePreferred = preferredModels.find(m => models.includes(m));
-                if (availablePreferred) {
-                    select.value = availablePreferred;
-                }
-            } catch (error) {
-                console.error('Failed to load models:', error);
-            }
-        }
-
-        async function loadConditions() {
-            try {
-                const response = await fetch(`/api/experiments/${experimentId}/conditions`);
-                if (!response.ok) throw new Error('Failed to load conditions');
-                
-                const data = await response.json();
-                const conditions = data.conditions || [];
-                
-                document.getElementById('totalConditions').textContent = conditions.length;
-                
-                const container = document.getElementById('conditionsList');
-                
-                if (conditions.length === 0) {
-                    container.innerHTML = `
-                        <p style="color: #999; text-align: center; padding: 40px;">
-                            No conditions defined yet. Click "+ Add Condition" to create one.
-                        </p>
-                    `;
-                    return;
-                }
-                
-                container.innerHTML = conditions.map(c => `
-                    <div class="condition-card">
-                        <div class="condition-header">
-                            <div style="flex: 1;">
-                                <div class="condition-name">${c.name}</div>
-                                ${c.description ? `<p style="color: #666; font-size: 0.9em; margin: 5px 0;">${c.description}</p>` : ''}
-                                <div class="condition-meta">
-                                    Model: <strong>${c.bot_model}</strong>
-                                </div>
-                                ${c.system_prompt ? `
-                                <div style="margin-top: 10px; padding: 10px; background: #f9f9f9; border-radius: 4px; border-left: 3px solid #3498db;">
-                                    <div style="font-size: 0.85em; color: #999; margin-bottom: 5px;">System Prompt:</div>
-                                    <div style="font-size: 0.9em; color: #555; white-space: pre-wrap; font-family: inherit; line-height: 1.5;">${c.system_prompt}</div>
-                                </div>` : '<div style="margin-top: 10px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 0.85em; color: #856404;">⚠️ No system prompt defined</div>'}
-                                ${c.instruction_text ? `
-                                <div style="margin-top: 10px; padding: 10px; background: #e8f5e9; border-radius: 4px; border-left: 3px solid #4caf50;">
-                                    <div style="font-size: 0.85em; color: #999; margin-bottom: 5px;">📋 Instruction Text:</div>
-                                    <div style="font-size: 0.9em; color: #555; white-space: pre-wrap; font-family: inherit; font-style: normal; line-height: 1.5;">${c.instruction_text}</div>
-                                </div>` : ''}
-                                ${c.time_limit_minutes ? `
-                                <div style="margin-top: 10px; padding: 8px; background: #fff8e1; border-radius: 4px; font-size: 0.9em; color: #f57c00;">
-                                    ⏱️ Time Limit: <strong>${c.time_limit_minutes} minutes</strong>
-                                </div>` : ''}
-                            </div>
-                            <div style="display: flex; gap: 8px; align-self: flex-start;">
-                                <button class="btn btn-small btn-primary" onclick="editCondition('${c.condition_id}')">Edit</button>
-                                <button class="btn btn-small btn-danger" onclick="deleteCondition('${c.condition_id}')">Delete</button>
-                            </div>
-                        </div>
-                    </div>
-                `).join('');
-            } catch (error) {
-                console.error('Failed to load conditions:', error);
-                document.getElementById('conditionsList').innerHTML = `
-                    <p style="color: #e74c3c; text-align: center; padding: 40px;">Failed to load conditions</p>
-                `;
-            }
-        }
-
-        async function loadSessions() {
-            try {
-                const response = await fetch(`/api/experiments/${experimentId}/sessions`);
-                if (!response.ok) throw new Error('Failed to load sessions');
-                
-                const data = await response.json();
-                const sessions = data.sessions || [];
-                
-                const container = document.getElementById('sessionsList');
-                const countSpan = document.getElementById('sessions-count');
-                
-                // セッション数を表示
-                const activeSessions = sessions.filter(s => s.status === 'active');
-                const endedSessions = sessions.filter(s => s.status === 'ended');
-                countSpan.textContent = `(${sessions.length}) - Active: ${activeSessions.length} | Ended: ${endedSessions.length}`;
-                
-                if (sessions.length === 0) {
-                    container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No sessions yet</p>';
-                    return;
-                }
-                
-                container.innerHTML = `
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
-                                <th style="padding: 10px; text-align: left;">Session ID</th>
-                                <th style="padding: 10px; text-align: left;">Condition</th>
-                                <th style="padding: 10px; text-align: center;">Participants</th>
-                                <th style="padding: 10px; text-align: center;">Messages</th>
-                                <th style="padding: 10px; text-align: center;">Status</th>
-                                <th style="padding: 10px; text-align: center;">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${sessions.map(s => `
-                                <tr style="border-bottom: 1px solid #eee;">
-                                    <td style="padding: 10px; font-family: monospace; font-size: 0.9em;">${s.session_id.substring(0, 16)}...</td>
-                                    <td style="padding: 10px;">${s.experiment_group || 'N/A'}</td>
-                                    <td style="padding: 10px; text-align: center;">${s.participants ? s.participants.length : 0}</td>
-                                    <td style="padding: 10px; text-align: center;">${s.total_messages || 0}</td>
-                                    <td style="padding: 10px; text-align: center;">
-                                        <span style="padding: 3px 8px; border-radius: 3px; font-size: 0.85em; background: ${s.status === 'active' ? '#d4edda' : '#f8d7da'}; color: ${s.status === 'active' ? '#155724' : '#721c24'};">
-                                            ${s.status}
-                                        </span>
-                                    </td>
-                                    <td style="padding: 10px; text-align: center;">
-                                        <button class="btn btn-small btn-primary" onclick="viewSession('${s.session_id}')" style="margin-right: 4px;">View</button>
-                                        ${s.status === 'ended' ? `
-                                            <button class="btn btn-small" onclick="exportSessionData('${s.session_id}', 'json')" style="margin-right: 4px;">JSON</button>
-                                            <button class="btn btn-small" onclick="exportSessionData('${s.session_id}', 'csv')">CSV</button>
-                                        ` : ''}
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                `;
-            } catch (error) {
-                console.error('Failed to load sessions:', error);
-            }
-        }
-        
-        function toggleSessions() {
-            const list = document.getElementById('sessionsList');
-            const toggle = document.getElementById('sessions-toggle');
-            
-            if (list.style.display === 'none') {
-                list.style.display = 'block';
-                toggle.textContent = '▼';
-            } else {
-                list.style.display = 'none';
-                toggle.textContent = '▶';
-            }
-        }
-        
-        function viewSession(sessionId) {
-            window.open(`/viewer?session_id=${sessionId}`, '_blank', 'width=800,height=600');
-        }
-        
-        async function exportSessionData(sessionId, format) {
-            try {
-                const response = await fetch(`/api/sessions/${sessionId}/export?format=${format}`, {
-                    method: 'POST'
-                });
-                
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `messages_${sessionId}.${format}`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                } else {
-                    alert('Export failed');
-                }
-            } catch (error) {
-                alert('Export failed: ' + error.message);
-            }
-        }
-
-        function showConditionModal(isNew = false) {
-            if (isNew) {
-                currentEditingConditionId = null;
-                document.getElementById('conditionName').value = '';
-                document.getElementById('conditionDescription').value = '';
-                document.getElementById('systemPrompt').value = '';
-                document.getElementById('instructionText').value = '';
-                document.getElementById('timeLimitMinutes').value = '';
-            }
-            document.getElementById('conditionModal').style.display = 'block';
-        }
-
-        function closeConditionModal() {
-            document.getElementById('conditionModal').style.display = 'none';
-        }
-
-        async function saveCondition() {
-            const timeLimitValue = document.getElementById('timeLimitMinutes').value.trim();
-            const descriptionValue = document.getElementById('conditionDescription').value.trim();
-            const systemPromptValue = document.getElementById('systemPrompt').value.trim();
-            const instructionValue = document.getElementById('instructionText').value.trim();
-            
-            const conditionData = {
-                condition_id: currentEditingConditionId || `condition_${Date.now()}`,
-                name: document.getElementById('conditionName').value.trim(),
-                description: descriptionValue || null,
-                bot_model: document.getElementById('botModel').value,
-                system_prompt: systemPromptValue || "",
-                instruction_text: instructionValue || null,
-                time_limit_minutes: timeLimitValue ? parseInt(timeLimitValue) : null,
-                weight: 1,  // Always equal probability
-                is_experiment: true,
-                experiment_group: document.getElementById('conditionName').value.trim(),
-                auto_create_session: true,
-                end_previous_session: false
-            };
-
-            if (!conditionData.name || !conditionData.bot_model) {
-                alert('Please fill in all required fields (Name and Bot Model)');
-                return;
-            }
-
-            try {
-                const response = await fetch(`/api/experiments/${experimentId}/conditions`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(conditionData)
-                });
-
-                if (response.ok) {
-                    alert('✅ Condition saved successfully!');
-                    closeConditionModal();
-                    loadConditions();
-                } else {
-                    alert('Failed to save condition');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
-        async function editCondition(conditionId) {
-            try {
-                const response = await fetch(`/api/conditions/${conditionId}`);
-                const condition = await response.json();
-                
-                currentEditingConditionId = conditionId;
-                document.getElementById('conditionName').value = condition.name;
-                document.getElementById('conditionDescription').value = condition.description || '';
-                document.getElementById('systemPrompt').value = condition.system_prompt;
-                document.getElementById('instructionText').value = condition.instruction_text || '';
-                document.getElementById('timeLimitMinutes').value = condition.time_limit_minutes || '';
-                
-                setTimeout(() => {
-                    document.getElementById('botModel').value = condition.bot_model;
-                }, 100);
-                
-                showConditionModal();
-            } catch (error) {
-                alert('Failed to load condition: ' + error.message);
-            }
-        }
-
-        async function deleteCondition(conditionId) {
-            if (!confirm('Delete this condition? This cannot be undone.')) return;
-            
-            try {
-                const response = await fetch(`/api/conditions/${conditionId}/delete`, { method: 'DELETE' });
-                if (response.ok) {
-                    alert('Condition deleted successfully');
-                    loadConditions();
-                } else {
-                    alert('Failed to delete condition');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
-        async function startExperiment() {
-            if (!confirm('Start this experiment?')) return;
-            
-            try {
-                const response = await fetch(`/api/experiments/${experimentId}/start`, { method: 'POST' });
-                if (response.ok) {
-                    alert('Experiment started!');
-                    location.reload();
-                } else {
-                    alert('Failed to start experiment');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
-        async function pauseExperiment() {
-            if (!confirm('Pause this experiment? New participants will not be able to join until resumed.')) return;
-            
-            try {
-                const response = await fetch(`/api/experiments/${experimentId}/pause`, { method: 'POST' });
-                if (response.ok) {
-                    alert('Experiment paused!');
-                    location.reload();
-                } else {
-                    alert('Failed to pause experiment');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
-        async function resumeExperiment() {
-            if (!confirm('Resume this experiment?')) return;
-            
-            try {
-                const response = await fetch(`/api/experiments/${experimentId}/resume`, { method: 'POST' });
-                if (response.ok) {
-                    alert('Experiment resumed!');
-                    location.reload();
-                } else {
-                    alert('Failed to resume experiment');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
-        async function endExperiment() {
-            if (!confirm('End this experiment? This will stop accepting new participants and cannot be undone.')) return;
-            
-            try {
-                const response = await fetch(`/api/experiments/${experimentId}/end`, { method: 'POST' });
-                if (response.ok) {
-                    alert('Experiment ended!');
-                    location.reload();
-                } else {
-                    alert('Failed to end experiment');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
-        async function deleteExperiment() {
-            const confirmMessage = `⚠️ WARNING: This action cannot be undone!\n\nDelete this experiment?\n\nThis will permanently remove:\n- Experiment configuration\n- All conditions\n- All associated sessions and data\n\nType "DELETE" to confirm:`;
-            
-            const userInput = prompt(confirmMessage);
-            
-            if (userInput !== 'DELETE') {
-                if (userInput !== null) {
-                    alert('Deletion cancelled. You must type "DELETE" exactly to confirm.');
-                }
-                return;
-            }
-            
-            try {
-                const response = await fetch(`/api/experiments/${experimentId}/delete`, { method: 'DELETE' });
-                if (response.ok) {
-                    alert('✅ Experiment deleted successfully');
-                    window.location.href = '/admin';
-                } else {
-                    alert('Failed to delete experiment');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
-        // Close modal when clicking outside
-        window.onclick = function(event) {
-            const modal = document.getElementById('conditionModal');
-            if (event.target === modal) {
-                closeConditionModal();
-            }
-        }
-    </script>
+    <!-- External JavaScript Files -->
+    <script src="/static/js/experiment_detail.js?v=20251116_0420"></script>
+    <script src="/static/js/experiment_detail_step_editor.js?v=20251116_0420"></script>
+    <script src="/static/js/experiment_flow_blocks.js?v=20251116_0420"></script>
 </body>
 </html>
-

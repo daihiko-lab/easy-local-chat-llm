@@ -476,9 +476,6 @@
                 const conditions = conditionsData.conditions || [];
                 const sessions = sessionsData.sessions || [];
                 
-                // 実験用条件の数を数える
-                const experimentConditions = conditions.filter(c => c.is_experiment);
-                
                 // Active と Completed に分ける
                 const activeExperiments = experiments.filter(e => ['planning', 'active', 'paused'].includes(e.status));
                 const completedExperiments = experiments.filter(e => e.status === 'completed');
@@ -494,27 +491,20 @@
                     activeContainer.innerHTML = `
                         <div style="text-align: center; padding: 40px; color: #999;">
                             <p style="font-size: 1.1em; margin-bottom: 10px;">No active experiments.</p>
-                            ${experimentConditions.length === 0 ? 
-                                `<p style="font-size: 0.9em; color: #f57c00; background: #fff3e0; padding: 12px; border-radius: 6px; display: inline-block;">
-                                    ⚠️ Create experiment conditions first!<br>
-                                    Go to experiment detail page after creating.
-                                </p>` :
-                                `<p style="font-size: 0.9em;">
-                                    ✅ You have ${experimentConditions.length} condition(s) ready.<br>
-                                    Click "Create New Experiment" above to start.
-                                </p>`
-                            }
+                            <p style="font-size: 0.9em;">
+                                Click "Create New Experiment" above to start.
+                            </p>
                         </div>
                     `;
                 } else {
-                    activeContainer.innerHTML = activeExperiments.map(exp => renderExperimentCard(exp, experimentConditions, sessions)).join('');
+                    activeContainer.innerHTML = activeExperiments.map(exp => renderExperimentCard(exp, sessions)).join('');
                 }
                 
                 // Completed Experiments
                 if (completedExperiments.length === 0) {
                     completedContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">No completed experiments</div>';
                 } else {
-                    completedContainer.innerHTML = completedExperiments.map(exp => renderExperimentCard(exp, experimentConditions, sessions)).join('');
+                    completedContainer.innerHTML = completedExperiments.map(exp => renderExperimentCard(exp, sessions)).join('');
                 }
                 
             } catch (error) {
@@ -523,7 +513,7 @@
             }
         }
         
-        function renderExperimentCard(exp, experimentConditions, allSessions) {
+        function renderExperimentCard(exp, allSessions) {
             const statusColors = {
                 'planning': '#95a5a6',
                 'active': '#27ae60',
@@ -537,7 +527,8 @@
                 'completed': 'Completed'
             };
             
-            const conditionsCount = exp.status === 'active' ? experimentConditions.length : 0;
+            // 実験フローのステップ数をカウント
+            const flowStepsCount = (exp.experiment_flow && exp.experiment_flow.length) || 0;
             
             // この実験に属するセッションを取得
             const experimentSessions = allSessions.filter(s => s.experiment_id === exp.experiment_id);
@@ -553,16 +544,16 @@
                                 <span style="background: ${statusColors[exp.status]}; color: white; padding: 3px 10px; border-radius: 4px; font-size: 0.7em; margin-left: 10px;">
                                     ${statusLabels[exp.status]}
                                 </span>
-                                ${conditionsCount > 0 ? `
-                                <span style="background: #ff9800; color: white; padding: 3px 10px; border-radius: 4px; font-size: 0.7em; margin-left: 5px;">
-                                    📋 ${conditionsCount} Conditions
+                                ${flowStepsCount > 0 ? `
+                                <span style="background: #2196f3; color: white; padding: 3px 10px; border-radius: 4px; font-size: 0.7em; margin-left: 5px;">
+                                    🔄 ${flowStepsCount} Steps
                                 </span>` : ''}
                             </h3>
                             ${exp.description ? `<p style="margin: 0 0 8px 0; color: #666; font-size: 0.95em;">${exp.description}</p>` : ''}
                             ${exp.researcher ? `<p style="margin: 0; color: #999; font-size: 0.85em;">👤 Researcher: ${exp.researcher}</p>` : ''}
-                            ${exp.status === 'active' && conditionsCount === 0 ? `
+                            ${exp.status === 'active' && (!exp.experiment_flow || exp.experiment_flow.length === 0) ? `
                             <div style="background: #fff3cd; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 0.85em; color: #856404;">
-                                ⚠️ No experiment conditions! Create conditions by clicking "🔧 Manage"
+                                ⚠️ No experiment flow defined! Click "🔧 Manage" to edit the flow
                             </div>` : ''}
                         </div>
                         <div style="display: flex; gap: 8px; flex-shrink: 0;">

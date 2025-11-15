@@ -131,8 +131,8 @@ async function connect() {
                 sessionElement.textContent = data.session_id;
             }
             
-            // タイムリミットを設定（セッション作成時に開始）
-            startTimeLimitIfNeeded();
+            // 🆕 常にフローシステムを初期化（旧形式は自動変換される）
+            initializeExperimentFlow();
         } else if (data.type === 'instruction') {
             // 教示文メッセージの処理（joinメッセージの後にサーバーから送信される）
             displayMessage(data);
@@ -713,5 +713,25 @@ async function submitSurvey() {
     } catch (error) {
         console.error('Survey submission error:', error);
         alert('アンケートの送信中にエラーが発生しました。');
+    }
+}
+
+/**
+ * 🆕 実験フローを初期化
+ */
+async function initializeExperimentFlow() {
+    if (!currentSessionId || !clientId) {
+        console.error('[Flow] Cannot initialize: missing sessionId or clientId');
+        return;
+    }
+    
+    // ExperimentFlowインスタンスを作成
+    experimentFlow = new ExperimentFlow(currentSessionId, clientId);
+    
+    // 初期化（フロー情報を取得して最初のステップを表示）
+    const initialized = await experimentFlow.initialize();
+    
+    if (!initialized) {
+        console.log('[Flow] No flow configured - this should not happen normally');
     }
 } 

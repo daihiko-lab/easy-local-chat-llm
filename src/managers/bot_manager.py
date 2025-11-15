@@ -174,15 +174,26 @@ class BotManager:
         """Ollamaから利用可能なモデルのリストを取得"""
         try:
             models = ollama.list()
-            # モデル名のリストを返す
+            
+            # ollama-python 0.4.x は ListResponse オブジェクトを返す
             if hasattr(models, 'models'):
-                return [model['name'] for model in models['models']]
+                # 各モデルは Model オブジェクトで、.model 属性にモデル名がある
+                model_list = [model.model for model in models.models]
+                print(f"[BotManager] Successfully loaded {len(model_list)} models: {model_list}")
+                return model_list
             elif isinstance(models, dict) and 'models' in models:
-                return [model['name'] for model in models['models']]
+                # 旧バージョン対応: 辞書形式
+                model_list = [model.get('name', model.get('model', '')) for model in models['models']]
+                print(f"[BotManager] Successfully loaded {len(model_list)} models (dict format): {model_list}")
+                return model_list
             else:
+                print(f"[BotManager] WARNING: Unexpected response format from ollama.list()")
+                print(f"[BotManager] Response type: {type(models)}")
                 return []
         except Exception as e:
-            print(f"Failed to get available models: {e}")
+            print(f"[BotManager] Failed to get available models: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     async def check_model_availability(self, model: str) -> bool:

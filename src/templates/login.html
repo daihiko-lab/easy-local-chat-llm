@@ -95,10 +95,19 @@
             </div>
             
             <form id="login-form">
-                <label for="client-id">Client ID:</label>
-                <input type="text" id="client-id" name="client-id" required placeholder="Enter your name">
+                <label for="participant-code">Participant Code:</label>
+                <input type="text" id="participant-code" name="participant-code" required placeholder="e.g., a3k9r2" style="font-family: monospace; font-weight: 600; font-size: 18px;">
+                <div style="font-size: 12px; color: #666; margin-top: -10px; margin-bottom: 15px;">
+                    Enter the code provided by the researcher
+                </div>
                 
-                <button type="submit">Enter Chat Room</button>
+                <label for="participant-password">PIN (4 digits):</label>
+                <input type="text" id="participant-password" name="participant-password" required placeholder="e.g., 7352" maxlength="4" pattern="[0-9]{4}" style="font-family: monospace; font-weight: 700; font-size: 24px; letter-spacing: 3px;">
+                <div style="font-size: 12px; color: #666; margin-top: -10px; margin-bottom: 15px;">
+                    Enter the 4-digit PIN provided by the researcher
+                </div>
+                
+                <button type="submit">Start Experiment</button>
             </form>
         </div>
     </div>
@@ -131,7 +140,8 @@
                     submitButton.style.opacity = '0.5';
                     submitButton.style.cursor = 'not-allowed';
                     submitButton.textContent = 'Please Wait...';
-                    document.getElementById('client-id').disabled = true;
+                    document.getElementById('participant-code').disabled = true;
+                    document.getElementById('participant-password').disabled = true;
                     
                     // 定期チェック（実験が開始されるのを待つ）
                     setTimeout(checkConnectionStatus, 5000);
@@ -141,8 +151,9 @@
                     submitButton.disabled = false;
                     submitButton.style.opacity = '1';
                     submitButton.style.cursor = 'pointer';
-                    submitButton.textContent = 'Enter Chat Room';
-                    document.getElementById('client-id').disabled = false;
+                    submitButton.textContent = 'Start Experiment';
+                    document.getElementById('participant-code').disabled = false;
+                    document.getElementById('participant-password').disabled = false;
                 }
             } catch (error) {
                 console.error('Failed to check connection status:', error);
@@ -152,17 +163,24 @@
         // フォーム送信
         document.getElementById('login-form').addEventListener('submit', async function(event) {
             event.preventDefault();
-            const clientId = document.getElementById('client-id').value.trim();
+            const participantCode = document.getElementById('participant-code').value.trim();
+            const participantPassword = document.getElementById('participant-password').value.trim();
             
-            if (!clientId) {
-                alert('Client IDを入力してください');
+            if (!participantCode) {
+                alert('Please enter your participant code');
+                return;
+            }
+            
+            if (!participantPassword) {
+                alert('Please enter your password');
                 return;
             }
             
             try {
                 // サーバーにログインリクエストを送信してトークンを取得
                 const formData = new FormData();
-                formData.append('client_id', clientId);
+                formData.append('participant_code', participantCode.toLowerCase());
+                formData.append('participant_password', participantPassword.toLowerCase());
                 
                 const response = await fetch('/api/login', {
                     method: 'POST',
