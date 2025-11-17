@@ -1,12 +1,13 @@
 import csv
 import json
 import io
-from typing import List, Dict
+from typing import List, Dict, Set
 from datetime import datetime
 from ..models.message import Message
 from ..models.session import Session
 from ..managers.session_manager import SessionManager
 from ..managers.message_store import MessageStore
+from collections import OrderedDict
 
 
 class DataExporter:
@@ -438,6 +439,163 @@ class DataExporter:
                 session.total_messages,
                 duration
             ])
+        
+        return output.getvalue()
+    
+    def export_experiment_wide_format_csv(self, experiment_id: str, 
+                                          session_manager: SessionManager,
+                                          message_store: MessageStore = None) -> str:
+        """
+        実験データをワイド形式CSVでエクスポート（統計分析用）
+        1行 = 1参加者（1セッション）
+        各質問（question_id）が列になる
+        """
+        # 実験に属する全セッションを取得
+        all_sessions = session_manager.get_all_sessions()
+        exp_sessions = [s for s in all_sessions if s.experiment_id == experiment_id and s.status == 'ended']
+        
+        if not exp_sessions:
+            # セッションがない場合は空のCSVを返す
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['experiment_id', 'session_id', 'participant_code', 'status', 'message'])
+            writer.writerow([experiment_id, '', '', 'no_data', 'No completed sessions found'])
+            return output.getvalue()
+        
+        # すべてのquestion_idを収集（カラムヘッダー用）
+        all_question_ids = OrderedDict()  # 出現順を保持
+        all_ai_eval_ids = OrderedDict()   # AI評価質問ID
+        
+        for session in exp_sessions:
+            # Survey responses
+            for client_id, responses in session.survey_responses.items():
+                for response in responses:
+                    if response.question_id not in all_question_ids:
+                        all_question_ids[response.question_id] = True
+            
+            # AI evaluation results (step_responses内)
+            for step_id, step_data in session.step_responses.items():
+                if isinstance(step_data, dict):
+                    for client_id, client_data in step_data.items():
+                        if isinstance(client_data, dict) and 'evaluation_results' in client_data:
+                            eval_results = client_data['evaluation_results']
+                            if isinstance(eval_results, dict):
+                                for eval_q_id in eval_results.keys():
+                                    full_id = f"ai_eval_{eval_q_id}"
+                                    if full_id not in all_ai_eval_ids:
+                                        all_ai_eval_ids[full_id] = True
+        
+        # ヘッダー行を構築
+        headers = [
+            'experiment_id',
+            'session_id',
+            'participant_code',
+            'client_id',
+            'condition_id',
+            'experiment_group',
+            'started_at',
+            'ended_at',
+            'duration_seconds',
+            'total_messages',
+            'user_message_count',
+            'bot_message_count',
+            'avg_user_chars',
+            'avg_user_words'
+        ]
+        
+        # サーベイ質問列を追加
+        headers.extend(list(all_question_ids.keys()))
+        
+        # AI評価列を追加
+        headers.extend(list(all_ai_eval_ids.keys()))
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(headers)
+        
+        # 各セッションのデータを行として出力
+        for session in exp_sessions:
+            # 基本情報
+            duration_seconds = ''
+            if session.ended_at:
+                try:
+                    start = datetime.fromisoformat(session.created_at)
+                    end = datetime.fromisoformat(session.ended_at)
+                    duration_seconds = str(int((end - start).total_seconds()))
+                except:
+                    pass
+            
+            # メッセージ統計を計算
+            user_msg_count = 0
+            bot_msg_count = 0
+            total_user_chars = 0
+            total_user_words = 0
+            
+            if message_store:
+                messages = message_store.get_messages_by_session(session.session_id)
+                user_messages = [m for m in messages if m.message_type == 'user']
+                bot_messages = [m for m in messages if m.message_type == 'bot']
+                
+                user_msg_count = len(user_messages)
+                bot_msg_count = len(bot_messages)
+                
+                for msg in user_messages:
+                    total_user_chars += msg.char_count
+                    total_user_words += msg.word_count
+            
+            avg_user_chars = f"{total_user_chars / user_msg_count:.2f}" if user_msg_count > 0 else '0'
+            avg_user_words = f"{total_user_words / user_msg_count:.2f}" if user_msg_count > 0 else '0'
+            
+            # client_idを取得（通常は1参加者=1セッション）
+            client_id = session.participants[0] if session.participants else ''
+            
+            # 行データの基本部分
+            row_data = [
+                experiment_id,
+                session.session_id,
+                session.participant_code or '',
+                client_id,
+                session.condition_id or '',
+                session.experiment_group or '',
+                session.created_at,
+                session.ended_at or '',
+                duration_seconds,
+                session.total_messages,
+                user_msg_count,
+                bot_msg_count,
+                avg_user_chars,
+                avg_user_words
+            ]
+            
+            # サーベイ回答を追加（question_idの順番に従って）
+            survey_answers = {}
+            for client_id_resp, responses in session.survey_responses.items():
+                for response in responses:
+                    # 配列回答はJSON文字列に変換
+                    answer = response.answer
+                    if isinstance(answer, list):
+                        answer = json.dumps(answer, ensure_ascii=False)
+                    survey_answers[response.question_id] = answer
+            
+            for q_id in all_question_ids.keys():
+                row_data.append(survey_answers.get(q_id, ''))
+            
+            # AI評価結果を追加
+            ai_eval_answers = {}
+            for step_id, step_data in session.step_responses.items():
+                if isinstance(step_data, dict):
+                    for client_id_resp, client_data in step_data.items():
+                        if isinstance(client_data, dict) and 'evaluation_results' in client_data:
+                            eval_results = client_data['evaluation_results']
+                            if isinstance(eval_results, dict):
+                                for eval_q_id, score in eval_results.items():
+                                    full_id = f"ai_eval_{eval_q_id}"
+                                    ai_eval_answers[full_id] = str(score)
+            
+            for eval_id in all_ai_eval_ids.keys():
+                row_data.append(ai_eval_answers.get(eval_id, ''))
+            
+            writer.writerow(row_data)
         
         return output.getvalue()
 

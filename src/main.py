@@ -2012,6 +2012,42 @@ async def export_experiment_sessions_data(experiment_id: str, format: str = "csv
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/experiments/{experiment_id}/export/wide")
+async def export_experiment_wide_format(experiment_id: str,
+                                        admin_token: Optional[str] = Cookie(None)):
+    """
+    実験データをワイド形式CSVでエクスポート（統計分析用）
+    1行 = 1参加者、各質問が列になる
+    """
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        print(f"[Export] Exporting wide format CSV for experiment {experiment_id}")
+        
+        content = data_exporter.export_experiment_wide_format_csv(
+            experiment_id, session_manager, message_store
+        )
+        
+        filename = f"wide_format_{experiment_id}_{timestamp}.csv"
+        
+        print(f"[Export] Wide format CSV generated: {len(content)} bytes")
+        
+        return Response(
+            content=content,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        print(f"[Export] Error generating wide format CSV: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/sessions/export/all")
 async def export_all_sessions(format: str = "csv", admin_token: Optional[str] = Cookie(None)):
     """全セッションの情報をエクスポート（直接ダウンロード）"""

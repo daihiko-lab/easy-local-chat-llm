@@ -1498,6 +1498,57 @@ async function deleteAllCodes() {
     }
 }
 
+// ==================== Export Wide Format ====================
+async function exportWideFormat() {
+    console.log('[Export] Exporting wide format CSV...');
+    
+    try {
+        const response = await fetch(`/api/experiments/${experimentId}/export/wide`, {
+            method: 'POST',
+            credentials: 'include'  // cookieを送信
+        });
+        
+        if (response.status === 401) {
+            alert('Session expired. Please login again.');
+            window.location.href = '/admin/login';
+            return;
+        }
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Export failed');
+        }
+        
+        // CSVファイルをダウンロード
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        
+        // ファイル名をContent-Dispositionヘッダーから取得
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = `wide_format_${experimentId}.csv`;
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename=(.+)/);
+            if (filenameMatch && filenameMatch[1]) {
+                filename = filenameMatch[1];
+            }
+        }
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        console.log('[Export] Wide format CSV downloaded:', filename);
+        
+    } catch (error) {
+        console.error('[Export] Error exporting wide format:', error);
+        alert(`Failed to export wide format CSV: ${error.message}`);
+    }
+}
+
 // Export functions to global scope for onclick handlers
 window.addStep = addStep;
 window.addStepAt = addStepAt;
@@ -1516,6 +1567,7 @@ window.deleteAllCodes = deleteAllCodes;
 window.openFlowModal = openFlowModal;
 window.closeFlowModal = closeFlowModal;
 window.saveFlow = saveFlow;
+window.exportWideFormat = exportWideFormat;
 
-console.log('✅ experiment_detail.js loaded (2024-11-16 - Global Scope Export)');
+console.log('✅ experiment_detail.js loaded (2024-11-16 - Wide Format Export)');
 
