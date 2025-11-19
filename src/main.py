@@ -1835,6 +1835,10 @@ async def configure_chat(session_id: str, request: Request):
         top_k = data.get('top_k', 40)
         repeat_penalty = data.get('repeat_penalty', 1.1)
         num_predict = data.get('num_predict')
+        num_thread = data.get('num_thread')
+        num_ctx = data.get('num_ctx')
+        num_gpu = data.get('num_gpu')
+        num_batch = data.get('num_batch')
         
         # セッションを取得
         session = session_manager.load_session(session_id)
@@ -1849,8 +1853,12 @@ async def configure_chat(session_id: str, request: Request):
         bot_manager.set_top_k(session_id, top_k)
         bot_manager.set_repeat_penalty(session_id, repeat_penalty)
         bot_manager.set_num_predict(session_id, num_predict)
+        bot_manager.set_num_thread(session_id, num_thread)
+        bot_manager.set_num_ctx(session_id, num_ctx)
+        bot_manager.set_num_gpu(session_id, num_gpu)
+        bot_manager.set_num_batch(session_id, num_batch)
         
-        print(f"[Chat] {bot_model} | T:{temperature} P:{top_p} K:{top_k} RP:{repeat_penalty}")
+        print(f"[Chat] {bot_model} | T:{temperature} P:{top_p} K:{top_k} RP:{repeat_penalty} | Threads:{num_thread} Ctx:{num_ctx} GPU:{num_gpu} Batch:{num_batch}")
         
         return JSONResponse(content={
             "status": "success",
@@ -1861,7 +1869,11 @@ async def configure_chat(session_id: str, request: Request):
                 "top_p": top_p,
                 "top_k": top_k,
                 "repeat_penalty": repeat_penalty,
-                "num_predict": num_predict
+                "num_predict": num_predict,
+                "num_thread": num_thread,
+                "num_ctx": num_ctx,
+                "num_gpu": num_gpu,
+                "num_batch": num_batch
             }
         })
         

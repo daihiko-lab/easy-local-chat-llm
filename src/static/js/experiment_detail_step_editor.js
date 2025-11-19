@@ -197,6 +197,26 @@ function generateStepEditForm(step) {
                     <div class="form-hint">Maximum number of tokens to generate (optional, may truncate responses)</div>
                 </div>
                 <div class="form-group">
+                    <label>CPU Threads (num_thread)</label>
+                    <input type="number" id="edit_num_thread" class="form-control" value="${step.num_thread || ''}" placeholder="Default: 8 (M4 optimized)" min="1" max="16" step="1">
+                    <div class="form-hint">Number of CPU threads (default: 8 for M4, leave empty for auto)</div>
+                </div>
+                <div class="form-group">
+                    <label>Context Length (num_ctx)</label>
+                    <input type="number" id="edit_num_ctx" class="form-control" value="${step.num_ctx || ''}" placeholder="Default: 8192" min="512" max="32768" step="512">
+                    <div class="form-hint">Context window size (default: 8192, leave empty for auto)</div>
+                </div>
+                <div class="form-group">
+                    <label>GPU Layers (num_gpu)</label>
+                    <input type="number" id="edit_num_gpu" class="form-control" value="${step.num_gpu !== undefined ? step.num_gpu : ''}" placeholder="Default: -1 (all layers)" min="-1" max="100" step="1">
+                    <div class="form-hint">Number of GPU layers (-1 = all, default: -1 for M4 Neural Engine, leave empty for auto)</div>
+                </div>
+                <div class="form-group">
+                    <label>Batch Size (num_batch)</label>
+                    <input type="number" id="edit_num_batch" class="form-control" value="${step.num_batch || ''}" placeholder="Default: 512" min="1" max="2048" step="32">
+                    <div class="form-hint">Batch processing size (default: 512, leave empty for auto)</div>
+                </div>
+                <div class="form-group">
                     <label>Time Limit (minutes)</label>
                     <input type="number" id="edit_time_limit" class="form-control" value="${step.time_limit_minutes || ''}" placeholder="Leave empty for no time limit" min="1">
                     <div class="form-hint">Optional: Time limit for the chat session</div>
@@ -874,6 +894,14 @@ async function saveStepEdit() {
                 step.repeat_penalty = repeat_penalty !== null ? repeat_penalty : 1.1;
                 const num_predict = getNumberValueOrFallback('edit_num_predict', null);
                 step.num_predict = num_predict;
+                const num_thread = getNumberValueOrFallback('edit_num_thread', null);
+                step.num_thread = num_thread;
+                const num_ctx = getNumberValueOrFallback('edit_num_ctx', null);
+                step.num_ctx = num_ctx;
+                const num_gpu = getNumberValueOrFallback('edit_num_gpu', null);
+                step.num_gpu = num_gpu;
+                const num_batch = getNumberValueOrFallback('edit_num_batch', null);
+                step.num_batch = num_batch;
                 const timeLimit = getNumberValueOrFallback('edit_time_limit', null);
                 step.time_limit_minutes = timeLimit;
                 step.required = getCheckboxValueOrFallback('edit_required', step.required ?? true);
@@ -882,7 +910,11 @@ async function saveStepEdit() {
                     top_p: step.top_p,
                     top_k: step.top_k,
                     repeat_penalty: step.repeat_penalty,
-                    num_predict: step.num_predict
+                    num_predict: step.num_predict,
+                    num_thread: step.num_thread,
+                    num_ctx: step.num_ctx,
+                    num_gpu: step.num_gpu,
+                    num_batch: step.num_batch
                 });
                 break;
             

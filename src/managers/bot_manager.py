@@ -25,12 +25,21 @@ class BotManager:
         self.top_ks: Dict[str, int] = {}  # セッションIDごとのtop_k
         self.repeat_penalties: Dict[str, float] = {}  # セッションIDごとのrepeat_penalty
         self.num_predicts: Dict[str, Optional[int]] = {}  # セッションIDごとのnum_predict
+        self.num_threads: Dict[str, Optional[int]] = {}  # セッションIDごとのnum_thread
+        self.num_ctxs: Dict[str, Optional[int]] = {}  # セッションIDごとのnum_ctx
+        self.num_gpus: Dict[str, Optional[int]] = {}  # セッションIDごとのnum_gpu
+        self.num_batches: Dict[str, Optional[int]] = {}  # セッションIDごとのnum_batch
         self.default_system_prompt = "あなたは親切で役立つAIアシスタントです。ユーザーの質問に丁寧に答えてください。"
         self.default_temperature = 0.7
         self.default_top_p = 0.9
         self.default_top_k = 40
         self.default_repeat_penalty = 1.1
         self.default_num_predict = None
+        # M4最適化デフォルト値
+        self.default_num_thread = 8  # M4の10コアを活用
+        self.default_num_ctx = 8192  # 16GBメモリで余裕を持たせる
+        self.default_num_gpu = -1  # 全GPUレイヤー使用（M4 Neural Engine）
+        self.default_num_batch = 512  # 並列処理最適化
     
     def set_model(self, session_id: str, model: str):
         """セッションのモデルを設定"""
@@ -87,6 +96,38 @@ class BotManager:
     def get_num_predict(self, session_id: str) -> Optional[int]:
         """セッションのnum_predictを取得"""
         return self.num_predicts.get(session_id, self.default_num_predict)
+    
+    def set_num_thread(self, session_id: str, num_thread: Optional[int]):
+        """セッションのnum_threadを設定"""
+        self.num_threads[session_id] = num_thread
+    
+    def get_num_thread(self, session_id: str) -> Optional[int]:
+        """セッションのnum_threadを取得"""
+        return self.num_threads.get(session_id, self.default_num_thread)
+    
+    def set_num_ctx(self, session_id: str, num_ctx: Optional[int]):
+        """セッションのnum_ctxを設定"""
+        self.num_ctxs[session_id] = num_ctx
+    
+    def get_num_ctx(self, session_id: str) -> Optional[int]:
+        """セッションのnum_ctxを取得"""
+        return self.num_ctxs.get(session_id, self.default_num_ctx)
+    
+    def set_num_gpu(self, session_id: str, num_gpu: Optional[int]):
+        """セッションのnum_gpuを設定"""
+        self.num_gpus[session_id] = num_gpu
+    
+    def get_num_gpu(self, session_id: str) -> Optional[int]:
+        """セッションのnum_gpuを取得"""
+        return self.num_gpus.get(session_id, self.default_num_gpu)
+    
+    def set_num_batch(self, session_id: str, num_batch: Optional[int]):
+        """セッションのnum_batchを設定"""
+        self.num_batches[session_id] = num_batch
+    
+    def get_num_batch(self, session_id: str) -> Optional[int]:
+        """セッションのnum_batchを取得"""
+        return self.num_batches.get(session_id, self.default_num_batch)
     
     def get_conversation_history(self, session_id: str) -> List[Dict]:
         """セッションの会話履歴を取得"""
@@ -152,10 +193,26 @@ class BotManager:
                 'repeat_penalty': self.get_repeat_penalty(session_id)
             }
             
-            # num_predictが設定されている場合のみ追加
+            # オプションパラメータを追加（Noneでない場合のみ）
             num_predict = self.get_num_predict(session_id)
             if num_predict is not None:
                 options['num_predict'] = num_predict
+            
+            num_thread = self.get_num_thread(session_id)
+            if num_thread is not None:
+                options['num_thread'] = num_thread
+            
+            num_ctx = self.get_num_ctx(session_id)
+            if num_ctx is not None:
+                options['num_ctx'] = num_ctx
+            
+            num_gpu = self.get_num_gpu(session_id)
+            if num_gpu is not None:
+                options['num_gpu'] = num_gpu
+            
+            num_batch = self.get_num_batch(session_id)
+            if num_batch is not None:
+                options['num_batch'] = num_batch
             
             response = await asyncio.to_thread(
                 ollama.chat,

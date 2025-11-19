@@ -512,6 +512,10 @@ function createNewStep(stepType) {
             newStep.top_k = 40;
             newStep.repeat_penalty = 1.1;
             newStep.num_predict = null;
+            newStep.num_thread = null;
+            newStep.num_ctx = null;
+            newStep.num_gpu = null;
+            newStep.num_batch = null;
             newStep.time_limit_minutes = null;
             break;
         case 'ai_evaluation':

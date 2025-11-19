@@ -632,7 +632,11 @@ class ExperimentFlow {
                     top_p: this.currentStep.top_p !== undefined ? this.currentStep.top_p : 0.9,
                     top_k: this.currentStep.top_k !== undefined ? this.currentStep.top_k : 40,
                     repeat_penalty: this.currentStep.repeat_penalty !== undefined ? this.currentStep.repeat_penalty : 1.1,
-                    num_predict: this.currentStep.num_predict || null
+                    num_predict: this.currentStep.num_predict || null,
+                    num_thread: this.currentStep.num_thread || null,
+                    num_ctx: this.currentStep.num_ctx || null,
+                    num_gpu: this.currentStep.num_gpu !== undefined ? this.currentStep.num_gpu : null,
+                    num_batch: this.currentStep.num_batch || null
                 })
             });
             console.log('[Flow] Chat configuration applied:', {
@@ -641,7 +645,11 @@ class ExperimentFlow {
                 top_p: this.currentStep.top_p,
                 top_k: this.currentStep.top_k,
                 repeat_penalty: this.currentStep.repeat_penalty,
-                num_predict: this.currentStep.num_predict
+                num_predict: this.currentStep.num_predict,
+                num_thread: this.currentStep.num_thread,
+                num_ctx: this.currentStep.num_ctx,
+                num_gpu: this.currentStep.num_gpu,
+                num_batch: this.currentStep.num_batch
             });
         } catch (error) {
             console.error('[Flow] Failed to configure chat:', error);
