@@ -871,20 +871,10 @@ function showAILoadingSpinner() {
         return;
     }
     
-    // メッセージと同じ構造でスピナーを作成
-    const messageContainer = document.createElement('div');
-    messageContainer.id = 'aiLoadingSpinner';
-    messageContainer.className = 'message-container';
-    
-    // アイコン
-    const iconDiv = document.createElement('div');
-    iconDiv.className = 'message-icon';
-    iconDiv.style.backgroundColor = '#4CAF50';
-    iconDiv.textContent = 'AI';
-    
-    // スピナーコンテナ
+    // スピナーコンテナを作成（アイコンなし）
     const spinnerWrapper = document.createElement('div');
-    spinnerWrapper.className = 'message ai-loading-spinner-wrapper';
+    spinnerWrapper.id = 'aiLoadingSpinner';
+    spinnerWrapper.className = 'ai-loading-spinner-wrapper';
     
     const spinnerContainer = document.createElement('div');
     spinnerContainer.className = 'spinner-container';
@@ -895,11 +885,8 @@ function showAILoadingSpinner() {
     spinnerContainer.appendChild(spinner);
     spinnerWrapper.appendChild(spinnerContainer);
     
-    messageContainer.appendChild(iconDiv);
-    messageContainer.appendChild(spinnerWrapper);
-    
     // メッセージエリアに追加
-    messageArea.appendChild(messageContainer);
+    messageArea.appendChild(spinnerWrapper);
     console.log('[Spinner] Spinner added to messageArea');
     
     // 最下部にスクロール
