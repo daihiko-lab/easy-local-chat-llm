@@ -1,12 +1,14 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import json
 import uuid
 
 
 class MessageMetadata(BaseModel):
     """メッセージのメタデータ"""
+    model_config = ConfigDict(extra='ignore')
+    
     char_count: int = 0
     word_count: int = 0
     client_color: Optional[str] = None
@@ -14,6 +16,8 @@ class MessageMetadata(BaseModel):
 
 class Message(BaseModel):
     """チャットメッセージモデル"""
+    model_config = ConfigDict(extra='ignore')
+    
     message_id: str = Field(default_factory=lambda: f"msg_{uuid.uuid4().hex[:12]}")
     session_id: str
     client_id: str  # 表示名（ユーザーが入力したID）

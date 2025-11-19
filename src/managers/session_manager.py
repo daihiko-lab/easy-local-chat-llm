@@ -31,22 +31,13 @@ class SessionManager:
         """動的にセッションディレクトリを取得"""
         return self._get_current_session_dir()
     
-    def create_session(self, session_id: Optional[str] = None, password: Optional[str] = None, 
-                      require_user_password: bool = False, disable_user_password: bool = False) -> Session:
+    def create_session(self, session_id: Optional[str] = None) -> Session:
         """新しいセッションを作成"""
         if session_id is None:
             # タイムスタンプベースのセッションID生成
             session_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-        session = Session(
-            session_id=session_id, 
-            require_user_password=require_user_password,
-            disable_user_password=disable_user_password
-        )
-        
-        # パスワードが指定されている場合は設定
-        if password:
-            session.set_password(password)
+        session = Session(session_id=session_id)
         
         self.current_session = session
         self._save_session(session)

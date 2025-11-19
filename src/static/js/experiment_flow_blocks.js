@@ -10,6 +10,7 @@ function getStepTypeLabel(stepType) {
         'consent': 'Consent',
         'instruction': 'Instruction',
         'survey': 'Survey',
+        'survey_randomizer': 'Randomizer',
         'chat': 'Chat',
         'ai_evaluation': 'AI Evaluation',
         'branch': 'Branch',
@@ -82,9 +83,10 @@ function renderNormalBlock(step, index) {
 function renderBranchBlock(step, stepIndex) {
     const branches = step.branches || [];
     const isCollapsed = collapsedBranches.has(step.step_id);
+    const flowSteps = window.currentFlow || window.experimentFlowSteps || [];
     
     let html = `
-        <div class="flow-block branch-block" data-index="${stepIndex}">
+        <div class="flow-block branch-block" draggable="true" data-index="${stepIndex}">
             <div class="flow-block-header">
                 <button onclick="toggleBranchCollapse('${step.step_id}'); event.stopPropagation();" style="background: none; border: none; cursor: pointer; padding: 0; font-size: 12px; color: #9ca3af; width: 20px; text-align: left; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
                     ${isCollapsed ? '▶' : '▼'}
@@ -95,6 +97,8 @@ function renderBranchBlock(step, stepIndex) {
                 </span>
                 <span style="flex: 1;"></span>
                 <div style="display: flex; gap: 6px; opacity: 0.6;">
+                    ${stepIndex > 0 ? `<button onclick="moveStepUp(${stepIndex}); event.stopPropagation();" style="padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #6b7280; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">↑</button>` : ''}
+                    ${stepIndex < flowSteps.length - 1 ? `<button onclick="moveStepDown(${stepIndex}); event.stopPropagation();" style="padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #6b7280; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">↓</button>` : ''}
                     <button onclick="addBranchPath(${stepIndex}); event.stopPropagation();" style="padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #6b7280; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">+ Add</button>
                     <button onclick="editStep(${stepIndex}); event.stopPropagation();" style="padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #6b7280; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">Edit</button>
                     <button onclick="deleteStep(${stepIndex}); event.stopPropagation();" style="padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #ef4444; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">×</button>
@@ -187,6 +191,7 @@ function getBlockIcon(type) {
         'consent': '📋',
         'instruction': '📝',
         'survey': '📊',
+        'survey_randomizer': '🎲',
         'chat': '💬',
         'ai_evaluation': '🤖',
         'branch': '🔀',
@@ -340,10 +345,16 @@ function addDragAndDropListeners() {
             const targetIndex = parseInt(block.dataset.index);
             if (draggedIndex !== null && draggedIndex !== targetIndex) {
                 // Reorder steps
-                const [removed] = experimentFlowSteps.splice(draggedIndex, 1);
-                experimentFlowSteps.splice(targetIndex, 0, removed);
-                renderFlowBlocks();
-                saveExperimentFlow();
+                const flowSteps = window.currentFlow || window.experimentFlowSteps || [];
+                const [removed] = flowSteps.splice(draggedIndex, 1);
+                flowSteps.splice(targetIndex, 0, removed);
+                
+                // Update global state
+                window.currentFlow = flowSteps;
+                window.experimentFlowSteps = flowSteps;
+                
+                renderFlowBlocks(flowSteps);
+                // Note: Auto-save happens on step edit, manual save on "Save Flow" button
             }
         });
     });
@@ -471,12 +482,71 @@ function createNewStep(stepType) {
             newStep.survey_questions = [];
             newStep.button_text = 'Submit';
             break;
+        case 'survey_randomizer':
+            newStep.title = 'Survey Randomizer';
+            newStep.surveys = [
+                {
+                    survey_id: 'survey_1',
+                    title: 'Survey 1',
+                    survey_description: '',
+                    survey_questions: [],
+                    button_text: 'Next'
+                },
+                {
+                    survey_id: 'survey_2',
+                    title: 'Survey 2',
+                    survey_description: '',
+                    survey_questions: [],
+                    button_text: 'Next'
+                }
+            ];
+            break;
         case 'chat':
             newStep.title = 'Chat Session';
             newStep.bot_name = 'AI Assistant';
             newStep.bot_model = '';
             newStep.system_prompt = '';
             newStep.time_limit_minutes = null;
+            break;
+        case 'ai_evaluation':
+            newStep.title = 'AI Evaluation';
+            newStep.evaluation_model = 'gemma2:9b';
+            newStep.context_prompt = 'Please evaluate the following conversation objectively.';
+            newStep.evaluation_questions = [
+                {
+                    question_id: 'sincerity',
+                    question_text: 'Did the user engage sincerely in the conversation?',
+                    question_type: 'likert',
+                    required: true,
+                    scale: 7,
+                    scale_labels: [],
+                    min_label: '',
+                    max_label: ''
+                },
+                {
+                    question_id: 'richness',
+                    question_text: 'Was the conversation content rich and meaningful?',
+                    question_type: 'likert',
+                    required: true,
+                    scale: 7,
+                    scale_labels: [],
+                    min_label: '',
+                    max_label: ''
+                }
+            ];
+            break;
+        case 'branch':
+            newStep.title = 'Conditional Branch';
+            newStep.branches = [
+                {
+                    branch_id: `branch_${Date.now()}_1`,
+                    condition_label: 'Branch A',
+                    condition_type: 'random',
+                    condition_value: '',
+                    weight: 1,
+                    steps: []
+                }
+            ];
             break;
         case 'debriefing':
             newStep.title = 'Thank you for participating';
@@ -536,6 +606,71 @@ function deleteBranchStep(stepIndex, branchIndex, stepIdx) {
     renderFlowBlocks();
 }
 
+// Add step at specific position (for main flow)
+function addStepAt(stepType, insertAtIndex) {
+    const newStep = createNewStep(stepType);
+    
+    // For flow editor, get the current flow from window.currentFlow
+    const flowSteps = window.currentFlow || window.experimentFlowSteps || [];
+    
+    // Insert at specific position or append to end
+    if (insertAtIndex !== null && insertAtIndex >= 0 && insertAtIndex <= flowSteps.length) {
+        flowSteps.splice(insertAtIndex, 0, newStep);
+    } else {
+        flowSteps.push(newStep);
+    }
+    
+    // Update global state
+    window.currentFlow = flowSteps;
+    window.experimentFlowSteps = flowSteps;
+    
+    renderFlowBlocks(flowSteps);
+}
+
+// Delete step
+function deleteStep(index) {
+    if (!confirm('Delete this step?')) return;
+    
+    const flowSteps = window.currentFlow || window.experimentFlowSteps || [];
+    flowSteps.splice(index, 1);
+    
+    // Update global state
+    window.currentFlow = flowSteps;
+    window.experimentFlowSteps = flowSteps;
+    
+    renderFlowBlocks(flowSteps);
+}
+
+// Move step up
+function moveStepUp(index) {
+    if (index === 0) return;
+    
+    const flowSteps = window.currentFlow || window.experimentFlowSteps || [];
+    const [removed] = flowSteps.splice(index, 1);
+    flowSteps.splice(index - 1, 0, removed);
+    
+    // Update global state
+    window.currentFlow = flowSteps;
+    window.experimentFlowSteps = flowSteps;
+    
+    renderFlowBlocks(flowSteps);
+}
+
+// Move step down
+function moveStepDown(index) {
+    const flowSteps = window.currentFlow || window.experimentFlowSteps || [];
+    if (index === flowSteps.length - 1) return;
+    
+    const [removed] = flowSteps.splice(index, 1);
+    flowSteps.splice(index + 1, 0, removed);
+    
+    // Update global state
+    window.currentFlow = flowSteps;
+    window.experimentFlowSteps = flowSteps;
+    
+    renderFlowBlocks(flowSteps);
+}
+
 // Override renderSteps to use block view
 const originalRenderSteps = window.renderSteps;
 window.renderSteps = function() {
@@ -557,6 +692,11 @@ window.editBranchStep = editBranchStep;
 window.saveBranchStepEdit = saveBranchStepEdit;
 window.closeBranchStepEdit = closeBranchStepEdit;
 window.deleteBranchStep = deleteBranchStep;
+window.addStepAt = addStepAt;
+window.deleteStep = deleteStep;
+window.moveStepUp = moveStepUp;
+window.moveStepDown = moveStepDown;
+// Note: editStep is exported by experiment_detail_step_editor.js
 
 console.log('✅ Finder-style hierarchy flow editor loaded');
 console.log('✅ experiment_flow_blocks.js loaded (2024-11-16 - AI Evaluation + Global Scope)');

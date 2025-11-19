@@ -206,10 +206,15 @@
         // Parse experiment data from JSON script tag
         window.currentExperiment = JSON.parse(document.getElementById('experimentData').textContent);
         window.experimentId = "{{ experiment.experiment_id }}";
+        // Initialize global flow variables
+        window.currentFlow = window.currentExperiment.experiment_flow || [];
+        window.experimentFlowSteps = window.currentFlow;
+        window.currentEditingStepIndex = null;
+        window.isEditingExperimentFlow = true; // Enable auto-save for experiment flow
     </script>
     
-    <script src="/static/js/experiment_flow_blocks.js?v=20251116_0540"></script>
-    <script src="/static/js/experiment_detail_step_editor.js?v=20251116_0540"></script>
+    <script src="/static/js/experiment_flow_blocks.js?v=20251119_1400"></script>
+    <script src="/static/js/experiment_detail_step_editor.js?v=20251119_1400"></script>
     <script>
         // Initialize flow editor
         document.addEventListener('DOMContentLoaded', function() {
@@ -256,8 +261,8 @@
             saveBtn.textContent = '💾 Saving...';
             
             try {
-                const response = await fetch(`/api/experiments/${window.experimentId}`, {
-                    method: 'PUT',
+                const response = await fetch(`/api/experiments/${window.experimentId}/flow`, {
+                    method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },

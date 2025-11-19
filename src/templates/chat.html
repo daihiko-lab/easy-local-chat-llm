@@ -59,6 +59,11 @@
         </div>
     </div>
     <script>
+        // デバッグ関数（何もしない）
+        window.showDebugInfo = function(msg) {
+            console.log(msg);
+        };
+        
         // テンプレートからパラメータを埋め込む
         window.CHAT_CONFIG = {
             token: "{{ token }}",
@@ -67,7 +72,7 @@
             experiment_id: "{{ experiment.experiment_id if experiment else '' }}"
         };
     </script>
-    <script src="{{ url_for('static', path='/js/experiment_flow.js') }}?v=20251116_0540"></script>
-    <script src="{{ url_for('static', path='/js/chat.js') }}?v=20251116_0540"></script>
+    <script src="{{ url_for('static', path='/js/experiment_flow.js') }}?v=20251119_1620"></script>
+    <script src="{{ url_for('static', path='/js/chat.js') }}?v=20251119_1620"></script>
 </body>
 </html> 

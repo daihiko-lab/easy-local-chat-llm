@@ -35,6 +35,16 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
 templates = Jinja2Templates(directory="src/templates")
 
+# ヘルスチェック（デバッグ用）
+@app.get("/api/health")
+async def health_check():
+    """HTTPリクエストが到達しているか確認するためのエンドポイント"""
+    return {
+        "status": "ok",
+        "message": "Server is running",
+        "timestamp": datetime.now().isoformat()
+    }
+
 # 接続中のクライアントを保持する辞書
 # key: 接続ID（ユニーク）, value: WebSocket接続
 active_connections: Dict[str, WebSocket] = {}
@@ -855,33 +865,6 @@ async def get_session_statistics(session_id: str):
     stats = message_store.get_session_statistics(session_id)
     return JSONResponse(content=stats)
 
-@app.post("/api/sessions/{session_id}/set_user_password")
-async def set_user_password(session_id: str, client_id: str, password: str):
-    """ユーザーIDにパスワードを設定"""
-    session = session_manager.load_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    session.set_user_password(client_id, password)
-    session_manager.update_session(session)
-    
-    return JSONResponse(content={
-        "status": "success",
-        "message": f"Password set for user {client_id}"
-    })
-
-@app.get("/api/sessions/{session_id}/check_user_password")
-async def check_user_password(session_id: str, client_id: str):
-    """ユーザーIDがパスワード保護されているか確認"""
-    session = session_manager.load_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    return JSONResponse(content={
-        "has_password": session.has_user_password(client_id),
-        "protected_users": session.get_protected_users()
-    })
-
 @app.get("/api/sessions/current/info")
 async def get_current_session_info():
     """現在のセッション情報を取得"""
@@ -968,17 +951,12 @@ async def delete_session(session_id: str, admin_token: Optional[str] = Cookie(No
         raise HTTPException(status_code=404, detail="Session not found")
 
 @app.post("/api/sessions/new")
-async def create_new_session(end_previous: bool = True, password: Optional[str] = None,
-                            require_user_password: bool = False,
-                            disable_user_password: bool = False,
+async def create_new_session(end_previous: bool = True,
                             admin_token: Optional[str] = Cookie(None)):
     """新しいセッションを作成
     
     Args:
         end_previous: Trueの場合、既存のアクティブセッションを全て終了（デフォルト）
-        password: セッションのパスワード（オプション）
-        require_user_password: ユーザーパスワード必須（True=必須、False=任意）
-        disable_user_password: ユーザーパスワード完全無効（True=パスワードなし強制）
     """
     # 認証チェック
     if not verify_admin_token(admin_token):
@@ -1002,11 +980,7 @@ async def create_new_session(end_previous: bool = True, password: Optional[str] 
             print(f"Previous session ended: {old_session.session_id}")
     
     # 新しいセッションを作成
-    session = session_manager.create_session(
-        password=password, 
-        require_user_password=require_user_password,
-        disable_user_password=disable_user_password
-    )
+    session = session_manager.create_session()
     
     # アクティブな実験があればセッションに紐付け
     active_exp = experiment_manager.get_active_experiment()
@@ -1016,9 +990,7 @@ async def create_new_session(end_previous: bool = True, password: Optional[str] 
         # 実験の統計を再計算
         experiment_manager.recalculate_experiment_statistics(active_exp.experiment_id, session_manager)
     
-    password_status = "with password" if password else "without password"
-    user_pw_status = "required" if require_user_password else "optional" if not disable_user_password else "disabled"
-    print(f"New session created: {session.session_id} ({password_status}, user password: {user_pw_status})")
+    print(f"New session created: {session.session_id}")
     
     message = "New session created"
     if end_previous:
@@ -1158,6 +1130,10 @@ async def generate_participant_codes(experiment_id: str, request: Request, admin
         experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
         print(f"[Codes] ✅ Experiment saved")
         
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
+        print(f"[Codes] ✅ Experiment reloaded in memory")
+        
         return JSONResponse(content={
             "status": "success",
             "codes": codes,
@@ -1195,6 +1171,9 @@ async def delete_unused_codes(experiment_id: str, admin_token: Optional[str] = C
         from pathlib import Path
         experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
         
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
+        
         return JSONResponse(content={
             "status": "success",
             "deleted_count": len(unused_codes),
@@ -1225,6 +1204,9 @@ async def delete_all_codes(experiment_id: str, admin_token: Optional[str] = Cook
         # 保存
         from pathlib import Path
         experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
+        
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
         
         return JSONResponse(content={
             "status": "success",
@@ -1263,6 +1245,9 @@ async def delete_participant_code(experiment_id: str, code: str, admin_token: Op
         # 保存
         from pathlib import Path
         experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
+        
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
         
         print(f"[Codes] ✅ Deleted code: {code}")
         
@@ -1448,6 +1433,9 @@ async def save_experiment_flow(experiment_id: str, request: Request, admin_token
         from pathlib import Path
         data_dir = Path(experiment.data_directory)
         experiment_manager._save_experiment(experiment, data_dir)
+        
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
         
         print(f"[Experiment] ✅ Flow saved for experiment '{experiment.name}': {len(experiment_flow)} steps")
         
@@ -2029,7 +2017,7 @@ async def export_experiment_wide_format(experiment_id: str,
         print(f"[Export] Exporting wide format CSV for experiment {experiment_id}")
         
         content = data_exporter.export_experiment_wide_format_csv(
-            experiment_id, session_manager, message_store
+            experiment_id, session_manager, message_store, experiment_manager
         )
         
         filename = f"wide_format_{experiment_id}_{timestamp}.csv"

@@ -22,8 +22,16 @@ class ExperimentFlow {
      */
     async initialize() {
         try {
+            // DOM要素を取得（早期取得）
+            this.chatContainer = document.getElementById('chatContainer');
+            
+            // デバッグ情報を画面に表示
+            this.showDebugInfo('Initializing flow...');
+            
             const response = await fetch(`/api/sessions/${this.sessionId}/flow/current?client_id=${this.clientId}`);
             const data = await response.json();
+            
+            this.showDebugInfo(`Flow response: has_flow=${data.has_flow}`);
             
             // 🆕 完了済み参加者チェック
             if (data.already_completed) {
@@ -41,6 +49,12 @@ class ExperimentFlow {
             
             this.hasFlow = true;
             
+            // フローが存在することが確定したので、すぐにチャットを非表示
+            if (this.chatContainer) {
+                this.chatContainer.style.display = 'none';
+                console.log('[Flow] Flow exists, hiding chat container immediately');
+            }
+            
             if (data.completed) {
                 // すべてのステップが完了
                 this.showCompletionMessage();
@@ -52,22 +66,34 @@ class ExperimentFlow {
             this.currentStepIndex = data.current_step_index;
             this.totalSteps = data.total_steps;
             
-            // DOM要素を取得
-            this.chatContainer = document.getElementById('chatContainer');
-            
             // フロー用コンテナを作成（存在しなければ）
             if (!document.getElementById('flowContainer')) {
                 this.createFlowContainer();
             }
             this.flowContainer = document.getElementById('flowContainer');
             
+            // 実験フローが存在する場合、チャット以外は確実にチャットを非表示＆フローを表示
+            if (this.currentStep.step_type !== 'chat') {
+                this.chatContainer.style.display = 'none';
+                this.flowContainer.style.display = 'flex';
+                this.showDebugInfo(`Hiding chat, showing flow (type: ${this.currentStep.step_type})`);
+                console.log('[Flow] Hiding chat, showing flow container');
+            } else {
+                this.chatContainer.style.display = 'flex';
+                this.flowContainer.style.display = 'none';
+                this.showDebugInfo('Showing chat, hiding flow');
+                console.log('[Flow] Showing chat, hiding flow container');
+            }
+            
             // 最初のステップを表示
+            this.showDebugInfo(`Showing step: ${this.currentStep.step_type}`);
             await this.showCurrentStep();
             
             return true;
             
         } catch (error) {
             console.error('[Flow] Error initializing:', error);
+            this.showDebugInfo(`ERROR: ${error.message}`);
             this.hasFlow = false;
             return false;
         }
@@ -110,6 +136,9 @@ class ExperimentFlow {
                 break;
             case 'survey':
                 this.showSurveyStep();
+                break;
+            case 'survey_randomizer':
+                this.showSurveyRandomizerStep();
                 break;
             case 'chat':
                 this.showChatStep();
@@ -157,17 +186,70 @@ class ExperimentFlow {
         const title = this.currentStep.title || '実験の説明';
         const content = this.currentStep.content || '';
         const buttonText = this.currentStep.button_text || '次へ';
+        const minDisplaySeconds = this.currentStep.min_display_seconds;
+        // show_timerが明示的にtrueの場合のみ表示、それ以外（false/null/undefined）は非表示
+        const showTimer = this.currentStep.show_timer === true;
+        
+        console.log('[Flow] Instruction step:', {
+            step_id: this.currentStep.step_id,
+            minDisplaySeconds: minDisplaySeconds,
+            show_timer: this.currentStep.show_timer,
+            showTimer: showTimer
+        });
+        
+        // Show button by default or hide it if there's a time limit
+        const buttonVisibility = minDisplaySeconds ? 'display: none;' : '';
+        
+        // Show timer only if both minDisplaySeconds is set AND showTimer is explicitly true
+        const showTimerDiv = minDisplaySeconds && showTimer;
         
         this.flowContainer.innerHTML = `
             <div class="flow-content">
                 <div class="flow-progress">ステップ ${this.currentStepIndex + 1} / ${this.totalSteps}</div>
                 <h2 class="flow-title">${this.escapeHtml(title)}</h2>
                 <div class="flow-text">${this.formatContent(content)}</div>
-                <div class="flow-actions">
+                ${showTimerDiv ? `<div id="instructionTimer" style="text-align: center; color: #666; margin: 20px 0; font-size: 14px;">ボタンは ${minDisplaySeconds} 秒後に表示されます...</div>` : ''}
+                <div class="flow-actions" id="instructionActions" style="${buttonVisibility}">
                     <button class="flow-button" onclick="experimentFlow.advanceToNextStep()">${this.escapeHtml(buttonText)}</button>
                 </div>
             </div>
         `;
+        
+        // Start timer if min_display_seconds is set
+        if (minDisplaySeconds && minDisplaySeconds > 0) {
+            console.log(`[Flow] Starting ${minDisplaySeconds}s timer for instruction`);
+            let remainingSeconds = minDisplaySeconds;
+            const timerElement = document.getElementById('instructionTimer');
+            const actionsElement = document.getElementById('instructionActions');
+            
+            // Update countdown every second
+            const countdownInterval = setInterval(() => {
+                remainingSeconds--;
+                
+                // Update timer text only if showTimer is true and element exists
+                if (showTimer && timerElement) {
+                    if (remainingSeconds > 0) {
+                        timerElement.textContent = `ボタンは ${remainingSeconds} 秒後に表示されます...`;
+                    } else {
+                        timerElement.textContent = '';
+                    }
+                }
+                
+                if (remainingSeconds <= 0) {
+                    clearInterval(countdownInterval);
+                    console.log('[Flow] Timer completed, showing button');
+                    if (actionsElement) {
+                        actionsElement.style.display = '';
+                        console.log('[Flow] Button display set to visible');
+                    }
+                    if (timerElement) {
+                        timerElement.remove();
+                    }
+                }
+            }, 1000);
+        } else {
+            console.log('[Flow] No timer set, button visible immediately');
+        }
     }
     
     /**
@@ -176,8 +258,20 @@ class ExperimentFlow {
     showSurveyStep() {
         const title = this.currentStep.title || 'アンケート';
         const description = this.currentStep.survey_description || '';
-        const questions = this.currentStep.survey_questions || [];
+        let questions = this.currentStep.survey_questions || [];
         const buttonText = this.currentStep.button_text || '送信';
+        const randomizeQuestions = this.currentStep.randomize_questions || false;
+        
+        // 質問をランダム化（フラグが立っている場合）
+        if (randomizeQuestions && questions.length > 0) {
+            questions = this.shuffleArray([...questions]); // コピーしてシャッフル
+            // ランダマイズされた順序を保存
+            this.currentStep._shuffled_questions = questions.map(q => q.question_id);
+            console.log('[Flow] Survey questions randomized');
+        } else {
+            // ランダマイズされていない場合も順序を保存
+            this.currentStep._shuffled_questions = questions.map(q => q.question_id);
+        }
         
         let questionsHtml = '';
         questions.forEach((question, index) => {
@@ -249,9 +343,14 @@ class ExperimentFlow {
         let html = '<div class="likert-scale">';
         
         // スケール範囲を決定（新形式と旧形式の両方に対応）
-        const scalePoints = question.scale || 7; // デフォルト7段階
+        const scalePoints = question.scale || 5; // デフォルト5段階（変更: 7→5）
         const scaleMin = question.scale_min || 1;
         const scaleMax = question.scale_max || scalePoints;
+        
+        // デバッグ: scaleが正しく読み込まれているか確認
+        if (question.scale !== undefined && question.scale !== scalePoints) {
+            console.warn(`[Likert] Question ${question.question_id}: scale mismatch. Expected ${question.scale}, using ${scalePoints}`);
+        }
         
         // ラベル設定を取得
         const scaleLabels = question.scale_labels || [];
@@ -308,6 +407,19 @@ class ExperimentFlow {
      */
     renderRadioChoice(question) {
         const options = question.options || question.choices || [];
+        
+        // デバッグログ
+        console.log(`[Flow] Rendering radio choice for ${question.question_id}:`, {
+            question_text: question.question_text,
+            options_count: options.length,
+            options: options
+        });
+        
+        if (options.length === 0) {
+            console.warn(`[Flow] ⚠️ No options found for radio question: ${question.question_id}`);
+            return '<div class="choice-options"><p style="color: #999; font-style: italic;">選択肢が設定されていません。</p></div>';
+        }
+        
         let html = '<div class="choice-options">';
         options.forEach((option) => {
             html += `
@@ -358,8 +470,9 @@ class ExperimentFlow {
      */
     renderShortTextInput(question) {
         const inputType = question.input_type || 'text';
+        // 数値入力の場合、max属性を削除（年齢などで制限をかけない）
         const extraAttrs = inputType === 'number' 
-            ? 'min="0" max="150" step="1"' 
+            ? 'min="0" step="1" pattern="[0-9]*"' 
             : (question.max_length ? `maxlength="${question.max_length}"` : '');
         
         return `
@@ -460,6 +573,17 @@ class ExperimentFlow {
                 // 短文テキスト
                 const input = document.querySelector(`input[name="${question.question_id}"]`);
                 answer = input ? input.value : null;
+                
+                // 数値入力の場合、数値かどうかをバリデーション
+                if (question.input_type === 'number' && answer !== null && answer !== '') {
+                    const numValue = Number(answer);
+                    if (isNaN(numValue) || !isFinite(numValue) || numValue < 0) {
+                        alert(`${question.question_text}には、0以上の数値を入力してください。`);
+                        return;
+                    }
+                    // 数値として保存（文字列ではなく）
+                    answer = numValue;
+                }
             } else if (qType === 'textarea') {
                 // 長文テキスト
                 const textarea = document.querySelector(`textarea[name="${question.question_id}"]`);
@@ -474,8 +598,16 @@ class ExperimentFlow {
             });
         }
         
+        // ランダマイズされた順序情報を含める
+        const responseData = {
+            survey_responses: responses
+        };
+        if (this.currentStep._shuffled_questions) {
+            responseData.question_order = this.currentStep._shuffled_questions;
+        }
+        
         // 次のステップへ進む（回答を含む）
-        await this.advanceToNextStep({ survey_responses: responses });
+        await this.advanceToNextStep(responseData);
     }
     
     /**
@@ -661,63 +793,297 @@ class ExperimentFlow {
     
     /**
      * AI Evaluation step processing
-     * Automatically evaluates the previous chat session
+     * プレイスホルダー: 実際のAI評価は行わず、すぐに次のステップに進む
      */
     async processAIEvaluationStep() {
-        console.log('[Flow] 🤖 Processing AI evaluation step:', this.currentStep.step_id);
+        console.log('[Flow] 🤖 AI evaluation step (placeholder):', this.currentStep.step_id);
         
-        // ローディング表示
+        // プレイスホルダー表示
         this.flowContainer.style.display = 'flex';
         this.chatContainer.style.display = 'none';
         this.flowContainer.innerHTML = `
             <div class="flow-content">
                 <div class="flow-progress">ステップ ${this.currentStepIndex + 1} / ${this.totalSteps}</div>
-                <h2 class="flow-title">🤖 AIによる評価中...</h2>
+                <h2 class="flow-title">🤖 AI評価（プレイスホルダー）</h2>
                 <div class="flow-text">
-                    <p>AIがチャット内容を分析しています。</p>
-                    <p>しばらくお待ちください...</p>
-                    <div style="text-align: center; margin-top: 30px;">
-                        <div class="spinner"></div>
-                    </div>
+                    <p>このステップは現在プレイスホルダーです。</p>
+                    <p>実際のAI評価機能は実装中です。</p>
+                </div>
+                <div class="flow-actions">
+                    <button class="flow-button" onclick="experimentFlow.advanceToNextStep()">次へ</button>
                 </div>
             </div>
         `;
         
-        try {
-            // AI評価APIを呼び出し
-            const response = await fetch(`/api/sessions/${this.sessionId}/ai_evaluate`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    client_id: this.clientId,
-                    step_id: this.currentStep.step_id,
-                    evaluation_config: {
-                        target_session: this.sessionId,
-                        questions: this.currentStep.evaluation_questions || [],
-                        evaluation_model: this.currentStep.evaluation_model || 'gemma2:9b',
-                        context_prompt: this.currentStep.context_prompt || ''
-                    }
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (response.ok) {
-                console.log('[Flow] AI evaluation completed:', data);
-                // 評価完了後、次のステップに進む
-                await this.advanceToNextStep({ ai_evaluation: data.results });
-            } else {
-                console.error('[Flow] AI evaluation failed:', data);
-                alert('AI評価でエラーが発生しました。次のステップに進みます。');
-                await this.advanceToNextStep();
-            }
-        } catch (error) {
-            console.error('[Flow] Error during AI evaluation:', error);
-            alert('AI評価でエラーが発生しました。次のステップに進みます。');
-            await this.advanceToNextStep();
+        // 実際のAI評価は行わず、ユーザーが「次へ」ボタンを押すまで待つ
+    }
+    
+    /**
+     * Survey Randomizer step - displays multiple surveys in random order
+     */
+    showSurveyRandomizerStep() {
+        // Support both 'steps' (new) and 'surveys' (legacy)
+        const items = this.currentStep.steps || this.currentStep.surveys || [];
+        
+        // 初回実行時にアイテムをシャッフル
+        if (!this.currentStep._shuffled_items) {
+            this.currentStep._shuffled_items = this.shuffleArray([...items]);
+            // ランダマイズされたアイテムの順序を保存
+            this.currentStep._item_order = this.currentStep._shuffled_items.map(item => 
+                item.survey_id || item.step_id || `item_${this.currentStep._shuffled_items.indexOf(item)}`
+            );
+            this.currentStep._current_item_index = 0;
+            this.currentStep._all_responses = [];
+            this.currentStep._temp_step = null;
+            console.log(`[Flow] Randomizer: ${items.length} items shuffled`);
         }
+        
+        const currentIndex = this.currentStep._current_item_index;
+        const shuffledItems = this.currentStep._shuffled_items;
+        
+        if (currentIndex >= shuffledItems.length) {
+            // すべてのアイテムが完了 - 次のステップへ
+            console.log('[Flow] Randomizer: All items completed');
+            const responseData = {
+                randomizer_responses: this.currentStep._all_responses
+            };
+            // アイテムの順序情報を含める
+            if (this.currentStep._item_order) {
+                responseData.item_order = this.currentStep._item_order;
+            }
+            this.advanceToNextStep(responseData);
+            return;
+        }
+        
+        // 現在のアイテムを表示
+        const currentItem = shuffledItems[currentIndex];
+        const itemType = currentItem.step_type || (currentItem.survey_questions ? 'survey' : 'unknown');
+        
+        // Store current item as temporary step
+        this.currentStep._temp_step = currentItem;
+        
+        // Display based on item type
+        if (itemType === 'survey') {
+            this.showRandomizerSurveyItem(currentItem, currentIndex, shuffledItems.length);
+        } else if (itemType === 'instruction') {
+            this.showRandomizerInstructionItem(currentItem, currentIndex, shuffledItems.length);
+        } else {
+            console.error(`[Flow] Unknown randomizer item type: ${itemType}`);
+            alert('Unknown item type. Skipping...');
+            this.currentStep._current_item_index++;
+            this.showSurveyRandomizerStep();
+        }
+    }
+    
+    showRandomizerSurveyItem(item, currentIndex, totalItems) {
+        const title = item.title || `アンケート (${currentIndex + 1}/${totalItems})`;
+        const description = item.survey_description || '';
+        let questions = item.survey_questions || [];
+        const buttonText = item.button_text || '次へ';
+        const randomizeQuestions = item.randomize_questions || false;
+        
+        // 質問をランダム化（フラグが立っている場合）
+        if (randomizeQuestions && questions.length > 0) {
+            questions = this.shuffleArray([...questions]); // コピーしてシャッフル
+            // ランダマイズされた質問の順序を保存
+            item._shuffled_questions = questions.map(q => q.question_id);
+            console.log('[Flow] Randomizer survey questions randomized');
+        } else {
+            // ランダマイズされていない場合も順序を保存
+            item._shuffled_questions = questions.map(q => q.question_id);
+        }
+        
+        let questionsHtml = '';
+        questions.forEach((question, index) => {
+            questionsHtml += this.renderQuestion(question, index);
+        });
+        
+        this.flowContainer.innerHTML = `
+            <div class="flow-content">
+                <div class="flow-progress">ステップ ${this.currentStepIndex + 1} / ${this.totalSteps} (${currentIndex + 1}/${totalItems})</div>
+                <h2 class="flow-title">${this.escapeHtml(title)}</h2>
+                ${description ? `<p class="flow-description">${this.escapeHtml(description)}</p>` : ''}
+                <form id="surveyForm" class="survey-form" onsubmit="experimentFlow.handleSurveyRandomizerSubmit(event); return false;">
+                    ${questionsHtml}
+                    <div class="flow-actions">
+                        <button type="submit" class="flow-button">${this.escapeHtml(buttonText)}</button>
+                    </div>
+                </form>
+            </div>
+        `;
+    }
+    
+    showRandomizerInstructionItem(item, currentIndex, totalItems) {
+        const title = item.title || `教示 (${currentIndex + 1}/${totalItems})`;
+        const content = item.content || '';
+        const buttonText = item.button_text || '次へ';
+        const minDisplaySeconds = item.min_display_seconds;
+        // show_timerが明示的にtrueの場合のみ表示、それ以外（false/null/undefined）は非表示
+        const showTimer = item.show_timer === true;
+        
+        const buttonVisibility = minDisplaySeconds ? 'display: none;' : '';
+        const showTimerDiv = minDisplaySeconds && showTimer;
+        
+        this.flowContainer.innerHTML = `
+            <div class="flow-content">
+                <div class="flow-progress">ステップ ${this.currentStepIndex + 1} / ${this.totalSteps} (${currentIndex + 1}/${totalItems})</div>
+                <h2 class="flow-title">${this.escapeHtml(title)}</h2>
+                <div class="flow-text">${this.formatContent(content)}</div>
+                ${showTimerDiv ? `<div id="randomizerTimer" style="text-align: center; color: #666; margin: 20px 0; font-size: 14px;">ボタンは ${minDisplaySeconds} 秒後に表示されます...</div>` : ''}
+                <div class="flow-actions" id="randomizerActions" style="${buttonVisibility}">
+                    <button class="flow-button" onclick="experimentFlow.handleRandomizerInstructionNext()">${this.escapeHtml(buttonText)}</button>
+                </div>
+            </div>
+        `;
+        
+        // Start timer if needed
+        if (minDisplaySeconds && minDisplaySeconds > 0) {
+            let remainingSeconds = minDisplaySeconds;
+            const timerElement = document.getElementById('randomizerTimer');
+            const actionsElement = document.getElementById('randomizerActions');
+            
+            const countdownInterval = setInterval(() => {
+                remainingSeconds--;
+                
+                if (showTimer && timerElement) {
+                    if (remainingSeconds > 0) {
+                        timerElement.textContent = `ボタンは ${remainingSeconds} 秒後に表示されます...`;
+                    } else {
+                        timerElement.textContent = '';
+                    }
+                }
+                
+                if (remainingSeconds <= 0) {
+                    clearInterval(countdownInterval);
+                    if (actionsElement) {
+                        actionsElement.style.display = '';
+                    }
+                    if (timerElement) {
+                        timerElement.remove();
+                    }
+                }
+            }, 1000);
+        }
+    }
+    
+    handleRandomizerInstructionNext() {
+        // Move to next item in randomizer
+        this.currentStep._current_item_index++;
+        this.showSurveyRandomizerStep();
+    }
+    
+    /**
+     * Handle survey randomizer submit
+     */
+    handleSurveyRandomizerSubmit(event) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        console.log('[Flow] Randomizer submit intercepted');
+        
+        const currentIndex = this.currentStep._current_item_index;
+        const currentItem = this.currentStep._shuffled_items[currentIndex];
+        const questions = currentItem.survey_questions || [];
+        
+        // バリデーション
+        for (const question of questions) {
+            if (question.required) {
+                const qType = question.question_type;
+                let hasAnswer = false;
+                
+                if (qType === 'likert' || qType === 'scale' || qType === 'radio' || qType === 'single_choice' || qType === 'choice') {
+                    const selected = document.querySelector(`input[name="${question.question_id}"]:checked`);
+                    hasAnswer = !!selected;
+                } else if (qType === 'checkbox' || qType === 'multiple_choice') {
+                    const checked = document.querySelectorAll(`input[name="${question.question_id}"]:checked`);
+                    hasAnswer = checked.length > 0;
+                } else if (qType === 'text') {
+                    const input = document.querySelector(`input[name="${question.question_id}"]`);
+                    hasAnswer = input && input.value.trim() !== '';
+                } else if (qType === 'textarea') {
+                    const textarea = document.querySelector(`textarea[name="${question.question_id}"]`);
+                    hasAnswer = textarea && textarea.value.trim() !== '';
+                }
+                
+                if (!hasAnswer) {
+                    alert(`必須項目に回答してください: ${question.question_text}`);
+                    return;
+                }
+            }
+        }
+        
+        // 回答を収集
+        const responses = [];
+        for (const question of questions) {
+            let answer = null;
+            const qType = question.question_type;
+            
+            if (qType === 'likert' || qType === 'scale') {
+                const selected = document.querySelector(`input[name="${question.question_id}"]:checked`);
+                answer = selected ? parseInt(selected.value) : null;
+            } else if (qType === 'radio' || qType === 'single_choice' || qType === 'choice') {
+                const selected = document.querySelector(`input[name="${question.question_id}"]:checked`);
+                answer = selected ? selected.value : null;
+            } else if (qType === 'checkbox' || qType === 'multiple_choice') {
+                const checked = document.querySelectorAll(`input[name="${question.question_id}"]:checked`);
+                answer = Array.from(checked).map(cb => cb.value);
+            } else if (qType === 'text') {
+                const input = document.querySelector(`input[name="${question.question_id}"]`);
+                answer = input ? input.value : null;
+                
+                // 数値入力の場合、数値かどうかをバリデーション
+                if (question.input_type === 'number' && answer !== null && answer !== '') {
+                    const numValue = Number(answer);
+                    if (isNaN(numValue) || !isFinite(numValue) || numValue < 0) {
+                        alert(`${question.question_text}には、0以上の数値を入力してください。`);
+                        return;
+                    }
+                    // 数値として保存（文字列ではなく）
+                    answer = numValue;
+                }
+            } else if (qType === 'textarea') {
+                const textarea = document.querySelector(`textarea[name="${question.question_id}"]`);
+                answer = textarea ? textarea.value : null;
+            }
+            
+            responses.push({
+                question_id: question.question_id,
+                question_text: question.question_text,
+                question_type: qType,
+                answer: answer,
+                item_id: currentItem.survey_id || currentItem.step_id || `item_${currentIndex}`,
+                item_type: currentItem.step_type || 'survey',
+                item_order: currentIndex + 1  // アイテム内での順序
+            });
+        }
+        
+        // ランダマイズされた質問の順序情報を追加
+        if (currentItem._shuffled_questions) {
+            responses.forEach((resp, idx) => {
+                resp.question_order = currentItem._shuffled_questions;
+                resp.question_index = currentItem._shuffled_questions.indexOf(resp.question_id) + 1;
+            });
+        }
+        
+        // 回答を保存
+        this.currentStep._all_responses.push(...responses);
+        
+        // 次のアイテムへ
+        this.currentStep._current_item_index++;
+        this.showSurveyRandomizerStep();
+    }
+    
+    /**
+     * Array shuffle utility (Fisher-Yates algorithm)
+     */
+    shuffleArray(array) {
+        const shuffled = [...array];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
     }
     
     /**
@@ -730,6 +1096,18 @@ class ExperimentFlow {
         // ブランチステップは自動的に次のステップに進む
         // サーバー側でランダム割り当てや条件分岐が処理される
         await this.advanceToNextStep();
+    }
+    
+    /**
+     * デバッグ情報を画面に表示（スマホ用）
+     * グローバル関数があればそれを使用
+     */
+    showDebugInfo(message) {
+        if (typeof window.showDebugInfo === 'function') {
+            window.showDebugInfo(message);
+        } else {
+            console.log('[Debug]', message);
+        }
     }
 }
 

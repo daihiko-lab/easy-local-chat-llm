@@ -51,8 +51,11 @@ function getClientColor(clientId) {
 
 let clientId;
 let currentSessionId;
+let experimentFlowInitialized = false; // フロー初期化フラグ
 
 async function connect() {
+    if (typeof showDebugInfo === 'function') showDebugInfo('[connect] Starting connection...');
+    
     // リロード検出：既にチャットセッションが開始されている場合、ログイン画面に戻す
     if (sessionStorage.getItem('chat_session_active') === 'true') {
         alert('Page reload is not allowed during the experiment. Please log in again.');
@@ -75,20 +78,26 @@ async function connect() {
     }
     
     if (!token) {
+        if (typeof showDebugInfo === 'function') showDebugInfo('[connect] ERROR: No token');
         alert('Invalid access. Please log in again.');
         window.location.href = '/';
         return;
     }
+    
+    if (typeof showDebugInfo === 'function') showDebugInfo('[connect] Token OK');
     
     // クライアントIDと条件IDを取得
     clientId = window.CHAT_CONFIG ? window.CHAT_CONFIG.client_id : null;
     let conditionId = window.CHAT_CONFIG ? window.CHAT_CONFIG.condition_id : null;
     
     if (!clientId) {
+        if (typeof showDebugInfo === 'function') showDebugInfo('[connect] ERROR: No clientId');
         alert('Client ID is required.');
         window.location.href = '/';
         return;
     }
+    
+    if (typeof showDebugInfo === 'function') showDebugInfo('[connect] ClientId: ' + clientId);
     
     // 実験では常に新規セッション作成（念のためストレージをクリア）
     sessionId = null;  // 常にnull
@@ -97,12 +106,38 @@ async function connect() {
     // グローバル変数に保存
     currentSessionId = null;  // 常に新規セッション
 
+    // 🆕 スマホのネットワーク遅延対策：WebSocket接続前にHTTPリクエストでネットワークを起こす
+    if (typeof showDebugInfo === 'function') showDebugInfo('[connect] Waking up network...');
+    try {
+        await fetch('/api/health');
+        if (typeof showDebugInfo === 'function') showDebugInfo('[connect] Network ready');
+    } catch (error) {
+        if (typeof showDebugInfo === 'function') showDebugInfo('[connect] Network wake-up failed, proceeding anyway');
+    }
+
     // WebSocket接続URL（常に新規セッション）
     const wsUrl = `ws://${window.location.host}/ws`;
     
+    if (typeof showDebugInfo === 'function') {
+        showDebugInfo('[connect] window.location.host: ' + window.location.host);
+        showDebugInfo('[connect] window.location.hostname: ' + window.location.hostname);
+        showDebugInfo('[connect] window.location.protocol: ' + window.location.protocol);
+        showDebugInfo('[connect] Opening WebSocket: ' + wsUrl);
+    }
     ws = new WebSocket(wsUrl);
     
+    // タイムアウト設定：10秒以内に接続できない場合（スマホのネットワーク遅延を考慮）
+    const wsTimeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+            if (typeof showDebugInfo === 'function') showDebugInfo('[WS] TIMEOUT: Connection not established after 10s');
+            if (typeof showDebugInfo === 'function') showDebugInfo('[WS] ReadyState: ' + ws.readyState + ' (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)');
+            alert('WebSocket connection timeout. Please check your network connection and try again.');
+        }
+    }, 10000);
+    
     ws.onopen = async function() {
+        clearTimeout(wsTimeout);
+        if (typeof showDebugInfo === 'function') showDebugInfo('[WS] Connected!');
         document.getElementById('status-text').textContent = 'Online';
         document.getElementById('status-icon').className = 'online';
         document.getElementById('client-id').textContent = `Client ID: ${clientId}`;
@@ -115,15 +150,18 @@ async function connect() {
             condition_id: conditionId,  // 常に新規セッション
             timestamp: new Date().toISOString()
         };
+        if (typeof showDebugInfo === 'function') showDebugInfo('[WS] Sending join message');
         ws.send(JSON.stringify(joinMessage));
     };
 
     ws.onmessage = function(event) {
         const data = JSON.parse(event.data);
+        if (typeof showDebugInfo === 'function') showDebugInfo('[WS] Message received: ' + data.type);
         
         // セッション作成メッセージの処理
         if (data.type === 'session_created') {
             currentSessionId = data.session_id;
+            if (typeof showDebugInfo === 'function') showDebugInfo('[WS] Session created: ' + data.session_id);
             // 実験ではlocalStorageを使用しない（リロード検出のため）
             // セッション表示を更新
             const sessionElement = document.getElementById('session-id');
@@ -155,6 +193,10 @@ async function connect() {
     };
 
     ws.onclose = function(event) {
+        if (typeof showDebugInfo === 'function') {
+            showDebugInfo('[WS] Closed: code=' + event.code + ', reason=' + (event.reason || 'no reason'));
+            showDebugInfo('[WS] Closed: wasClean=' + event.wasClean);
+        }
         if (event.reason === "Client ID already in use") {
             alert("This ID is already in use. Please log in with a different ID.");
             window.location.href = '/'; // ログインページに戻す
@@ -168,26 +210,62 @@ async function connect() {
     };
 
     ws.onerror = function(error) {
+        if (typeof showDebugInfo === 'function') {
+            showDebugInfo('[WS] ERROR occurred');
+            showDebugInfo('[WS] ERROR type: ' + error.type);
+            showDebugInfo('[WS] ERROR target.url: ' + (error.target ? error.target.url : 'N/A'));
+            showDebugInfo('[WS] ERROR target.readyState: ' + (error.target ? error.target.readyState : 'N/A'));
+        }
         console.error('WebSocket error:', error);
     };
 }
 
 function sendMessage() {
     const input = document.getElementById('messageInput');
+    if (!input) {
+        console.error('[Chat] messageInput element not found');
+        return;
+    }
+    
     const message = input.value.trim();
     
-    if (message && ws && ws.readyState === WebSocket.OPEN) {
-        const messageData = {
-            type: 'message',
-            client_id: clientId,
-            message: message,
-            timestamp: new Date().toISOString()
-        };
-        
-        ws.send(JSON.stringify(messageData));
-        input.value = '';
+    if (!message) {
+        console.log('[Chat] Empty message, ignoring');
+        return;
     }
+    
+    if (!ws) {
+        console.error('[Chat] WebSocket not initialized');
+        alert('接続が確立されていません。ページをリロードしてください。');
+        return;
+    }
+    
+    if (ws.readyState !== WebSocket.OPEN) {
+        console.error('[Chat] WebSocket not open, state:', ws.readyState);
+        alert('接続が切断されています。ページをリロードしてください。');
+        return;
+    }
+    
+    if (!clientId) {
+        console.error('[Chat] clientId not set');
+        alert('クライアントIDが設定されていません。');
+        return;
+    }
+    
+    const messageData = {
+        type: 'message',
+        client_id: clientId,
+        message: message,
+        timestamp: new Date().toISOString()
+    };
+    
+    console.log('[Chat] Sending message:', messageData);
+    ws.send(JSON.stringify(messageData));
+    input.value = '';
 }
+
+// グローバルスコープに明示的にエクスポート
+window.sendMessage = sendMessage;
 
 function sendSystemMessage(type) {
     if (ws) {
@@ -720,18 +798,47 @@ async function submitSurvey() {
  * 🆕 実験フローを初期化
  */
 async function initializeExperimentFlow() {
+    // 既に初期化済みの場合はスキップ
+    if (experimentFlowInitialized) {
+        console.log('[Chat.js] ExperimentFlow already initialized, skipping');
+        return;
+    }
+    
+    if (typeof showDebugInfo === 'function') showDebugInfo('[Chat.js] initializeExperimentFlow called');
+    console.log('[Chat.js] initializeExperimentFlow called');
+    console.log('[Chat.js] currentSessionId:', currentSessionId);
+    console.log('[Chat.js] clientId:', clientId);
+    
     if (!currentSessionId || !clientId) {
+        if (typeof showDebugInfo === 'function') showDebugInfo('ERROR: missing sessionId or clientId');
         console.error('[Flow] Cannot initialize: missing sessionId or clientId');
         return;
     }
     
+    // フラグを設定（重複呼び出しを防ぐ）
+    experimentFlowInitialized = true;
+    
     // ExperimentFlowインスタンスを作成
+    if (typeof showDebugInfo === 'function') showDebugInfo('Creating ExperimentFlow instance');
     experimentFlow = new ExperimentFlow(currentSessionId, clientId);
+    console.log('[Chat.js] ExperimentFlow instance created');
     
     // 初期化（フロー情報を取得して最初のステップを表示）
     const initialized = await experimentFlow.initialize();
+    if (typeof showDebugInfo === 'function') showDebugInfo(`Flow initialized: ${initialized}`);
+    console.log('[Chat.js] Flow initialized:', initialized);
     
     if (!initialized) {
-        console.log('[Flow] No flow configured - this should not happen normally');
+        console.log('[Flow] No flow configured - showing chat interface (legacy mode)');
+        if (typeof showDebugInfo === 'function') showDebugInfo('No flow - showing chat (legacy)');
+        // 実験フローがない場合はチャット画面を表示
+        const chatContainer = document.getElementById('chatContainer');
+        if (chatContainer) {
+            chatContainer.style.display = 'flex';
+            console.log('[Chat.js] Chat container shown (legacy mode)');
+        }
+    } else {
+        console.log('[Chat.js] Flow initialized successfully, flow should be visible');
+        if (typeof showDebugInfo === 'function') showDebugInfo('Flow should be visible now');
     }
 } 

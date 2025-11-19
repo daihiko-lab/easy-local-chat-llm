@@ -6,6 +6,8 @@
 
 html {
     height: -webkit-fill-available;
+    border: none;
+    outline: none;
 }
 
 html, body {
@@ -22,6 +24,8 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
+    border: none;
+    outline: none;
     /* overflow: hidden を削除してスクロール可能に */
 }
 

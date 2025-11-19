@@ -1,26 +1,35 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import json
 
 
 class SurveyQuestion(BaseModel):
     """アンケート質問項目"""
+    model_config = ConfigDict(extra='ignore')
+    
     question_id: str  # 質問ID（例: "q1", "q2"）
     question_text: str  # 質問文
     question_type: str  # 質問タイプ: "likert", "text", "single_choice", "multiple_choice"
     required: bool = True  # 必須回答かどうか
     
     # リッカート尺度用の設定
+    scale: Optional[int] = None  # 尺度のポイント数（例: 5 or 7）
     scale_min: Optional[int] = None  # 最小値（例: 1）
     scale_max: Optional[int] = None  # 最大値（例: 5 or 7）
     scale_min_label: Optional[str] = None  # 最小値のラベル（例: "全く当てはまらない"）
     scale_max_label: Optional[str] = None  # 最大値のラベル（例: "非常に当てはまる"）
+    scale_labels: Optional[List[str]] = None  # 各ポイントのラベル（後方互換性のため）
+    min_label: Optional[str] = None  # 最小値のラベル（後方互換性のため、scale_min_labelのエイリアス）
+    max_label: Optional[str] = None  # 最大値のラベル（後方互換性のため、scale_max_labelのエイリアス）
     
     # 選択肢用の設定
-    choices: Optional[List[str]] = None  # 選択肢リスト
+    choices: Optional[List[str]] = None  # 選択肢リスト（旧形式）
+    options: Optional[List[str]] = None  # 選択肢リスト（新形式、choicesのエイリアス）
     
     # 自由記述用の設定
+    input_type: Optional[str] = None  # 入力タイプ（"text", "number", "email"等）
+    placeholder: Optional[str] = None  # プレースホルダーテキスト
     max_length: Optional[int] = None  # 最大文字数
     
     def to_dict(self):
@@ -33,6 +42,8 @@ class SurveyQuestion(BaseModel):
 
 class ExperimentStep(BaseModel):
     """実験フローの各ステップ"""
+    model_config = ConfigDict(extra='ignore')
+    
     step_id: str  # ステップID（例: "step1", "consent", "pre_survey"）
     step_type: str  # ステップタイプ: "consent", "instruction", "survey", "chat", "debriefing"
     title: Optional[str] = None  # ステップのタイトル
@@ -40,12 +51,32 @@ class ExperimentStep(BaseModel):
     # 同意書・教示文・デブリーフィング用
     content: Optional[str] = None  # 表示するテキスト内容
     
+    # インストラクション用タイマー設定
+    min_display_seconds: Optional[int] = None  # 最小表示時間（秒）
+    show_timer: Optional[bool] = None  # タイマーを表示するか（None=デフォルト動作）
+    
     # アンケート用
     survey_questions: Optional[List[SurveyQuestion]] = None  # 質問リスト
     survey_description: Optional[str] = None  # アンケート説明文
+    randomize_questions: Optional[bool] = None  # 質問順序をランダム化
     
     # チャット用
     time_limit_minutes: Optional[int] = None  # チャット時間制限（分）
+    bot_model: Optional[str] = None  # AIモデル名（例: "gemma3:4b"）
+    bot_name: Optional[str] = None  # ボット名（例: "カウンセラーAI"）
+    system_prompt: Optional[str] = None  # システムプロンプト
+    
+    # AI評価用
+    evaluation_model: Optional[str] = None  # AI評価用のモデル名
+    evaluation_questions: Optional[List[SurveyQuestion]] = None  # AI評価用の質問リスト
+    context_prompt: Optional[str] = None  # AI評価用のコンテキストプロンプト
+    
+    # ブランチ用
+    branches: Optional[List[Dict[str, Any]]] = None  # ブランチのリスト（各ブランチにbranch_id, condition_label, condition_type, condition_value, weight, stepsが含まれる）
+    
+    # ランダマイザー用
+    steps: Optional[List[Dict[str, Any]]] = None  # ランダマイザー内のステップリスト（survey_randomizer用）
+    surveys: Optional[List[Dict[str, Any]]] = None  # ランダマイザー内のサーベイリスト（後方互換性のため）
     
     # ボタンテキストのカスタマイズ
     button_text: Optional[str] = None  # 次へ進むボタンのテキスト（例: "同意する", "次へ", "送信"）
@@ -58,6 +89,9 @@ class ExperimentStep(BaseModel):
         # survey_questionsをシリアライズ
         if self.survey_questions:
             data['survey_questions'] = [q.to_dict() for q in self.survey_questions]
+        # evaluation_questionsをシリアライズ
+        if self.evaluation_questions:
+            data['evaluation_questions'] = [q.to_dict() for q in self.evaluation_questions]
         return data
     
     @classmethod
@@ -65,11 +99,16 @@ class ExperimentStep(BaseModel):
         # survey_questionsをデシリアライズ
         if 'survey_questions' in data and data['survey_questions']:
             data['survey_questions'] = [SurveyQuestion.from_dict(q) for q in data['survey_questions']]
+        # evaluation_questionsをデシリアライズ
+        if 'evaluation_questions' in data and data['evaluation_questions']:
+            data['evaluation_questions'] = [SurveyQuestion.from_dict(q) for q in data['evaluation_questions']]
         return cls(**data)
 
 
 class Condition(BaseModel):
     """実験条件（Condition）モデル"""
+    model_config = ConfigDict(extra='ignore')
+    
     condition_id: str
     name: str = "Default Condition"
     description: Optional[str] = None

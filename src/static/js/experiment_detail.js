@@ -333,7 +333,6 @@ async function loadSessions() {
                     <tr style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
                         <th style="padding: 10px; text-align: left;">Participant Code</th>
                         <th style="padding: 10px; text-align: left;">Session ID</th>
-                        <th style="padding: 10px; text-align: left;">Condition</th>
                         <th style="padding: 10px; text-align: center;">Participants</th>
                         <th style="padding: 10px; text-align: center;">Messages</th>
                         <th style="padding: 10px; text-align: center;">Status</th>
@@ -350,7 +349,6 @@ async function loadSessions() {
                         <tr style="border-bottom: 1px solid #eee;">
                             <td style="padding: 10px; ${codeStyle}">${participantCode}</td>
                             <td style="padding: 10px; font-family: monospace; font-size: 0.9em;">${s.session_id.substring(0, 16)}...</td>
-                            <td style="padding: 10px;">${s.experiment_group || 'N/A'}</td>
                             <td style="padding: 10px; text-align: center;">${s.participants ? s.participants.length : 0}</td>
                             <td style="padding: 10px; text-align: center;">${s.total_messages || 0}</td>
                             <td style="padding: 10px; text-align: center;">

@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import json
 import random
 import string
@@ -12,6 +12,8 @@ if TYPE_CHECKING:
 
 class ExperimentGroup(BaseModel):
     """実験グループモデル"""
+    model_config = ConfigDict(extra='ignore')
+    
     experiment_id: str
     name: str = "New Experiment"
     slug: Optional[str] = None  # URLフレンドリーな名前

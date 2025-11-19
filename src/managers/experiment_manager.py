@@ -219,6 +219,25 @@ class ExperimentManager:
         print(f"📂 Active experiment: {active_exp.name} (directory: {self.current_data_dir.name})")
         return active_exp
     
+    def reload_experiment(self, experiment_id: str) -> Optional[ExperimentGroup]:
+        """実験をファイルから再読み込みして、メモリ上のキャッシュを更新"""
+        experiment = self.get_experiment(experiment_id)
+        if not experiment:
+            return None
+        
+        # current_experimentがこの実験の場合、更新する
+        if self.current_experiment and self.current_experiment.experiment_id == experiment_id:
+            self.current_experiment = experiment
+            self.current_data_dir = Path(experiment.data_directory)
+            print(f"🔄 Reloaded experiment: {experiment.name} ({experiment_id})")
+        # アクティブな実験の場合も更新（current_experimentがNoneでも）
+        elif experiment.status == "active":
+            self.current_experiment = experiment
+            self.current_data_dir = Path(experiment.data_directory)
+            print(f"🔄 Reloaded active experiment: {experiment.name} ({experiment_id})")
+        
+        return experiment
+    
     def get_current_data_dir(self, force_new: bool = False) -> Path:
         """現在のデータディレクトリを取得
         
