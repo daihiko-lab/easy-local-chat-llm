@@ -29,6 +29,29 @@ from .managers.experiment_manager import ExperimentManager
 def generate_random_color():
     return f'#{random.randint(0, 0xFFFFFF):06x}'
 
+# ログ表示用ユーティリティ
+def print_section_header(title: str):
+    """セクションヘッダーを表示"""
+    print(f"\n{'='*60}")
+    print(f"  {title}")
+    print(f"{'='*60}")
+
+def print_info_box(title: str, items: dict):
+    """情報ボックスを表示"""
+    print(f"\n┌─ {title} " + "─" * (55 - len(title)))
+    for key, value in items.items():
+        print(f"│ {key:20s}: {value}")
+    print(f"└" + "─" * 58)
+
+def print_progress(current: int, total: int, step_info: str):
+    """進捗情報を表示"""
+    bar_length = 30
+    filled = int(bar_length * current / total)
+    bar = "█" * filled + "░" * (bar_length - filled)
+    percentage = int(100 * current / total)
+    print(f"\n[Progress] {bar} {percentage}% ({current}/{total})")
+    print(f"           Step: {step_info}")
+
 app = FastAPI()
 
 # 静的ファイルとテンプレートの設定
@@ -518,8 +541,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 participant_code = token_data.get("participant_code")
                 experiment_id = token_data.get("experiment_id")
                 
-                print(f"[WS] 🎫 {base_client_id} | Code: {participant_code or 'None'} | Exp: {experiment_id}")
-                
                 # アクティブな実験の存在をチェック
                 active_exp = experiment_manager.get_active_experiment()
                 if not active_exp:
@@ -534,11 +555,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 # セッション情報を設定
                 session.client_id = base_client_id
-                session.experiment_id = active_exp.experiment_id  # ✅ 実験IDを設定
+                session.experiment_id = active_exp.experiment_id
                 session_manager.update_session(session)
                 session_created_now = True
                 
-                # 🆕 参加者コードをセッションに保存
+                # 参加者コードをセッションに保存
                 if participant_code:
                     session.participant_code = participant_code
                     session_manager.update_session(session)
@@ -547,14 +568,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     active_exp.mark_code_used(participant_code, base_client_id, session_id)
                     from pathlib import Path
                     experiment_manager._save_experiment(active_exp, Path(active_exp.data_directory))
-                    print(f"[Code] {participant_code} → used")
                 
                 # トークンを使用済みにする（1回のみ使用可能）
                 del session_tokens[token]
-                print(f"[Token] Consumed")
-                
-                # フローベースのシステムでは、ボット設定はチャットステップで適用される
-                print(f"[Session] {session_id} | Exp: {active_exp.name}")
                 
                 # 背後でユニークな接続IDを生成（UUID使用）
                 # 既存のIDと衝突しないことを保証
@@ -570,7 +586,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 connection_to_display_name[connection_id] = display_name
                 connection_to_base_name[connection_id] = base_client_id
                 
-                print(f"[Connect] {display_name}")
+                # 詳細なセッション情報を表示
+                print_section_header("🚀 NEW SESSION STARTED")
+                print_info_box("Session Info", {
+                    "Session ID": session_id,
+                    "Participant": base_client_id,
+                    "Participant Code": participant_code or "N/A",
+                    "Experiment": f"{active_exp.name} ({active_exp.experiment_id})",
+                    "Connection Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
                 
                 active_connections[client_id] = websocket
                 client_sessions[client_id] = session_id  # セッションIDを記録
@@ -1524,11 +1548,16 @@ async def get_current_step(session_id: str, client_id: str = None):
         # 実験フローをExperimentStepオブジェクトに変換
         from .models.condition import ExperimentStep
         effective_flow = [ExperimentStep.from_dict(step) for step in experiment.experiment_flow]
-        print(f"[Flow] Using experiment-level flow ({len(effective_flow)} steps)")
         
         # 現在のステップを取得
         if session.current_step_index >= len(effective_flow):
             # すべてのステップが完了
+            print_info_box("✅ Experiment Completed", {
+                "Session": session_id[:20] + "...",
+                "Participant": session.client_id,
+                "Total Steps": len(effective_flow),
+                "Completed": "All steps"
+            })
             return JSONResponse(content={
                 "has_flow": True,
                 "completed": True,
@@ -1536,6 +1565,13 @@ async def get_current_step(session_id: str, client_id: str = None):
             })
         
         current_step = effective_flow[session.current_step_index]
+        
+        # 進捗情報を表示
+        print_progress(
+            session.current_step_index + 1,
+            len(effective_flow),
+            f"{current_step.step_type.upper()}: {current_step.title or current_step.step_id}"
+        )
         
         return JSONResponse(content={
             "has_flow": True,
@@ -1580,7 +1616,6 @@ async def advance_step(session_id: str, request: Request):
         # 実験フローをExperimentStepオブジェクトに変換
         from .models.condition import ExperimentStep
         effective_flow = [ExperimentStep.from_dict(step) for step in experiment.experiment_flow]
-        print(f"[Flow] Using experiment-level flow ({len(effective_flow)} steps)")
         
         # 現在のステップを完了としてマーク
         if session.current_step_index < len(effective_flow):
@@ -1591,7 +1626,12 @@ async def advance_step(session_id: str, request: Request):
             if step_response:
                 session.add_step_response(current_step.step_id, client_id, step_response)
             
-            print(f"[Flow] Step '{current_step.step_id}' completed by {client_id}")
+            # ステップ完了を表示
+            print_info_box("✓ Step Completed", {
+                "Step": f"{current_step.step_type.upper()}: {current_step.title or current_step.step_id}",
+                "Participant": client_id,
+                "Progress": f"{session.current_step_index + 1}/{len(effective_flow)}"
+            })
         
         # 次のステップに進む
         session.advance_step()
@@ -1599,19 +1639,28 @@ async def advance_step(session_id: str, request: Request):
         
         # 次のステップ情報を返す
         if session.current_step_index >= len(effective_flow):
-            # 🆕 参加者を完了としてマーク
+            # 参加者を完了としてマーク
             session.mark_participant_completed(client_id)
             session_manager.update_session(session)
-            print(f"[Flow] Participant {client_id} marked as completed")
             
-            # 🆕 参加者コードを "completed" としてマーク
+            # 参加者コードを "completed" としてマーク
             if session.participant_code and session.experiment_id:
                 experiment = experiment_manager.get_experiment(session.experiment_id)
                 if experiment:
                     experiment.mark_code_completed(session.participant_code)
                     from pathlib import Path
                     experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
-                    print(f"[Flow] Participant code '{session.participant_code}' marked as completed")
+            
+            # 実験完了を表示
+            print_section_header("🎉 PARTICIPANT COMPLETED EXPERIMENT")
+            print_info_box("Completion Summary", {
+                "Participant": client_id,
+                "Participant Code": session.participant_code or "N/A",
+                "Session ID": session_id[:20] + "...",
+                "Experiment": experiment.name if experiment else "N/A",
+                "Total Steps": len(effective_flow),
+                "Completion Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
             
             return JSONResponse(content={
                 "status": "success",
@@ -1632,7 +1681,14 @@ async def advance_step(session_id: str, request: Request):
                 import random
                 # ランダムにbranchを選択（weightを考慮）
                 selected_branch = random.choice(branches)
-                print(f"[Flow] Branch '{next_step.step_id}' selected path: {selected_branch.get('branch_id', 'unknown')}")
+                
+                # ブランチ選択を表示
+                print_info_box("🔀 Branch Selected", {
+                    "Branch Point": next_step.step_id,
+                    "Selected Path": selected_branch.get('branch_id', 'unknown'),
+                    "Condition": selected_branch.get('condition_label', 'N/A'),
+                    "Participant": client_id
+                })
                 
                 # ブランチの最初のステップを取得
                 branch_steps = selected_branch.get('steps', [])
@@ -1858,7 +1914,20 @@ async def configure_chat(session_id: str, request: Request):
         bot_manager.set_num_gpu(session_id, num_gpu)
         bot_manager.set_num_batch(session_id, num_batch)
         
-        print(f"[Chat] {bot_model} | T:{temperature} P:{top_p} K:{top_k} RP:{repeat_penalty} | Threads:{num_thread} Ctx:{num_ctx} GPU:{num_gpu} Batch:{num_batch}")
+        # 詳細なAI設定情報を表示
+        print_info_box("🤖 AI Configuration Applied", {
+            "Session": session_id[:20] + "...",
+            "Model": bot_model,
+            "Temperature": f"{temperature} (creativity)",
+            "Top P": f"{top_p} (nucleus sampling)",
+            "Top K": f"{top_k} (token selection)",
+            "Repeat Penalty": f"{repeat_penalty} (anti-repetition)",
+            "Max Tokens": num_predict if num_predict else "Unlimited",
+            "CPU Threads": num_thread if num_thread else "Default (8)",
+            "Context Length": num_ctx if num_ctx else "Default (8192)",
+            "GPU Layers": num_gpu if num_gpu is not None else "Default (-1, all)",
+            "Batch Size": num_batch if num_batch else "Default (512)"
+        })
         
         return JSONResponse(content={
             "status": "success",
