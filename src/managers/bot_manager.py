@@ -20,7 +20,17 @@ class BotManager:
         self.conversation_history: Dict[str, List[Dict]] = {}  # セッションIDごとの会話履歴
         self.system_prompts: Dict[str, str] = {}  # セッションIDごとのシステムプロンプト
         self.models: Dict[str, str] = {}  # セッションIDごとのモデル
+        self.temperatures: Dict[str, float] = {}  # セッションIDごとのtemperature
+        self.top_ps: Dict[str, float] = {}  # セッションIDごとのtop_p
+        self.top_ks: Dict[str, int] = {}  # セッションIDごとのtop_k
+        self.repeat_penalties: Dict[str, float] = {}  # セッションIDごとのrepeat_penalty
+        self.num_predicts: Dict[str, Optional[int]] = {}  # セッションIDごとのnum_predict
         self.default_system_prompt = "あなたは親切で役立つAIアシスタントです。ユーザーの質問に丁寧に答えてください。"
+        self.default_temperature = 0.7
+        self.default_top_p = 0.9
+        self.default_top_k = 40
+        self.default_repeat_penalty = 1.1
+        self.default_num_predict = None
     
     def set_model(self, session_id: str, model: str):
         """セッションのモデルを設定"""
@@ -37,6 +47,46 @@ class BotManager:
     def get_system_prompt(self, session_id: str) -> str:
         """セッションのシステムプロンプトを取得"""
         return self.system_prompts.get(session_id, self.default_system_prompt)
+    
+    def set_temperature(self, session_id: str, temperature: float):
+        """セッションのtemperatureを設定"""
+        self.temperatures[session_id] = temperature
+    
+    def get_temperature(self, session_id: str) -> float:
+        """セッションのtemperatureを取得"""
+        return self.temperatures.get(session_id, self.default_temperature)
+    
+    def set_top_p(self, session_id: str, top_p: float):
+        """セッションのtop_pを設定"""
+        self.top_ps[session_id] = top_p
+    
+    def get_top_p(self, session_id: str) -> float:
+        """セッションのtop_pを取得"""
+        return self.top_ps.get(session_id, self.default_top_p)
+    
+    def set_top_k(self, session_id: str, top_k: int):
+        """セッションのtop_kを設定"""
+        self.top_ks[session_id] = top_k
+    
+    def get_top_k(self, session_id: str) -> int:
+        """セッションのtop_kを取得"""
+        return self.top_ks.get(session_id, self.default_top_k)
+    
+    def set_repeat_penalty(self, session_id: str, repeat_penalty: float):
+        """セッションのrepeat_penaltyを設定"""
+        self.repeat_penalties[session_id] = repeat_penalty
+    
+    def get_repeat_penalty(self, session_id: str) -> float:
+        """セッションのrepeat_penaltyを取得"""
+        return self.repeat_penalties.get(session_id, self.default_repeat_penalty)
+    
+    def set_num_predict(self, session_id: str, num_predict: Optional[int]):
+        """セッションのnum_predictを設定"""
+        self.num_predicts[session_id] = num_predict
+    
+    def get_num_predict(self, session_id: str) -> Optional[int]:
+        """セッションのnum_predictを取得"""
+        return self.num_predicts.get(session_id, self.default_num_predict)
     
     def get_conversation_history(self, session_id: str) -> List[Dict]:
         """セッションの会話履歴を取得"""
@@ -95,10 +145,23 @@ class BotManager:
             messages.extend(history)
             
             # Ollamaを使って応答を生成
+            options = {
+                'temperature': self.get_temperature(session_id),
+                'top_p': self.get_top_p(session_id),
+                'top_k': self.get_top_k(session_id),
+                'repeat_penalty': self.get_repeat_penalty(session_id)
+            }
+            
+            # num_predictが設定されている場合のみ追加
+            num_predict = self.get_num_predict(session_id)
+            if num_predict is not None:
+                options['num_predict'] = num_predict
+            
             response = await asyncio.to_thread(
                 ollama.chat,
                 model=self.get_model(session_id),
-                messages=messages
+                messages=messages,
+                options=options
             )
             
             bot_message = response['message']['content']

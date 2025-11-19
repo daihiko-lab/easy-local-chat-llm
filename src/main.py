@@ -121,15 +121,11 @@ def generate_admin_token() -> str:
 def verify_admin_token(token: Optional[str]) -> bool:
     """管理者トークンを検証"""
     if not token:
-        print(f"[Auth] ❌ No token provided")
+        print(f"[Auth] ❌ No token")
         return False
     
     is_valid = admin_tokens.get(token, False)
-    if is_valid:
-        print(f"[Auth] ✅ Valid admin token: {token[:16]}...")
-    else:
-        print(f"[Auth] ❌ Invalid admin token: {token[:16]}...")
-    
+    print(f"[Auth] {'✅' if is_valid else '❌'} {token[:12]}")
     return is_valid
 
 # アプリケーション起動時の処理
@@ -481,7 +477,7 @@ async def websocket_viewer_endpoint(websocket: WebSocket, session_id: str):
     active_connections[viewer_id] = websocket
     client_sessions[viewer_id] = session_id
     
-    print(f"[Viewer] Admin connected to session: {session_id}")
+    print(f"[Viewer] → {session_id}")
     
     try:
         # 管理者はメッセージを受信するだけ（送信しない）
@@ -495,7 +491,7 @@ async def websocket_viewer_endpoint(websocket: WebSocket, session_id: str):
             del active_connections[viewer_id]
         if viewer_id in client_sessions:
             del client_sessions[viewer_id]
-        print(f"[Viewer] Admin disconnected from session: {session_id}")
+        print(f"[Viewer] ← {session_id}")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -522,10 +518,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 participant_code = token_data.get("participant_code")
                 experiment_id = token_data.get("experiment_id")
                 
-                print(f"[WebSocket] 🎫 Valid token for '{base_client_id}'")
-                if participant_code:
-                    print(f"   Participant code: {participant_code}")
-                print(f"   Creating new session for experiment '{experiment_id}'")
+                print(f"[WS] 🎫 {base_client_id} | Code: {participant_code or 'None'} | Exp: {experiment_id}")
                 
                 # アクティブな実験の存在をチェック
                 active_exp = experiment_manager.get_active_experiment()
@@ -554,17 +547,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     active_exp.mark_code_used(participant_code, base_client_id, session_id)
                     from pathlib import Path
                     experiment_manager._save_experiment(active_exp, Path(active_exp.data_directory))
-                    print(f"[Experiment] 🔒 Participant code '{participant_code}' marked as used")
+                    print(f"[Code] {participant_code} → used")
                 
                 # トークンを使用済みにする（1回のみ使用可能）
                 del session_tokens[token]
-                print(f"[WebSocket] 🔒 Token consumed and invalidated")
+                print(f"[Token] Consumed")
                 
                 # フローベースのシステムでは、ボット設定はチャットステップで適用される
-                print(f"[Experiment] ✅ Session created on WebSocket connection")
-                print(f"   Session: {session_id}")
-                print(f"   Experiment: {active_exp.name}")
-                print(f"   Bot settings will be applied by flow steps")
+                print(f"[Session] {session_id} | Exp: {active_exp.name}")
                 
                 # 背後でユニークな接続IDを生成（UUID使用）
                 # 既存のIDと衝突しないことを保証
@@ -580,7 +570,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 connection_to_display_name[connection_id] = display_name
                 connection_to_base_name[connection_id] = base_client_id
                 
-                print(f"[Connection] User '{display_name}' connected (connection_id: {connection_id})")
+                print(f"[Connect] {display_name}")
                 
                 active_connections[client_id] = websocket
                 client_sessions[client_id] = session_id  # セッションIDを記録
@@ -1437,7 +1427,7 @@ async def save_experiment_flow(experiment_id: str, request: Request, admin_token
         # 実験を再読み込みしてメモリ上のキャッシュを更新
         experiment_manager.reload_experiment(experiment_id)
         
-        print(f"[Experiment] ✅ Flow saved for experiment '{experiment.name}': {len(experiment_flow)} steps")
+        print(f"[Flow] Saved {len(experiment_flow)} steps | {experiment.name}")
         
         return JSONResponse(content={
             "status": "success",
@@ -1831,6 +1821,52 @@ async def submit_step_response(session_id: str, request: Request):
         
     except Exception as e:
         print(f"[Flow] Error saving step response: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sessions/{session_id}/chat/configure")
+async def configure_chat(session_id: str, request: Request):
+    """チャットステップのbot設定を適用"""
+    try:
+        data = await request.json()
+        bot_model = data.get('bot_model', 'gemma3:4b')
+        system_prompt = data.get('system_prompt', '')
+        temperature = data.get('temperature', 0.7)
+        top_p = data.get('top_p', 0.9)
+        top_k = data.get('top_k', 40)
+        repeat_penalty = data.get('repeat_penalty', 1.1)
+        num_predict = data.get('num_predict')
+        
+        # セッションを取得
+        session = session_manager.load_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # bot_managerに設定を適用
+        bot_manager.set_model(session_id, bot_model)
+        bot_manager.set_system_prompt(session_id, system_prompt)
+        bot_manager.set_temperature(session_id, temperature)
+        bot_manager.set_top_p(session_id, top_p)
+        bot_manager.set_top_k(session_id, top_k)
+        bot_manager.set_repeat_penalty(session_id, repeat_penalty)
+        bot_manager.set_num_predict(session_id, num_predict)
+        
+        print(f"[Chat] {bot_model} | T:{temperature} P:{top_p} K:{top_k} RP:{repeat_penalty}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Chat configuration applied",
+            "config": {
+                "bot_model": bot_model,
+                "temperature": temperature,
+                "top_p": top_p,
+                "top_k": top_k,
+                "repeat_penalty": repeat_penalty,
+                "num_predict": num_predict
+            }
+        })
+        
+    except Exception as e:
+        print(f"[Chat Config] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/sessions/{session_id}/survey")

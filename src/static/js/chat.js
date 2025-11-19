@@ -186,7 +186,11 @@ async function connect() {
             }, 3000);
         } else if (data.type === 'bot') {
             // ボットメッセージの処理
+            hideAILoadingSpinner();
             displayMessage(data);
+        } else if (data.type === 'message' && data.client_id === clientId) {
+            // 自分のメッセージはすでに表示済みなのでスキップ
+            console.log('[WS] Skipping own message (already displayed)');
         } else {
             displayMessage(data);
         }
@@ -260,12 +264,21 @@ function sendMessage() {
     };
     
     console.log('[Chat] Sending message:', messageData);
+    
+    // 自分のメッセージを即座に表示
+    displayMessage(messageData);
+    
+    // WebSocketで送信
     ws.send(JSON.stringify(messageData));
     input.value = '';
+    
+    // AIローディングスピナーを表示
+    showAILoadingSpinner();
 }
 
 // グローバルスコープに明示的にエクスポート
 window.sendMessage = sendMessage;
+window.displayMessage = displayMessage;
 
 function sendSystemMessage(type) {
     if (ws) {
@@ -840,5 +853,58 @@ async function initializeExperimentFlow() {
     } else {
         console.log('[Chat.js] Flow initialized successfully, flow should be visible');
         if (typeof showDebugInfo === 'function') showDebugInfo('Flow should be visible now');
+    }
+}
+
+/**
+ * AIローディングスピナーを表示
+ */
+function showAILoadingSpinner() {
+    console.log('[Spinner] showAILoadingSpinner called');
+    
+    // 既存のスピナーがあれば削除
+    hideAILoadingSpinner();
+    
+    const messageArea = document.getElementById('messageArea');
+    if (!messageArea) {
+        console.error('[Spinner] messageArea not found');
+        return;
+    }
+    
+    // スピナー要素を作成
+    const spinnerDiv = document.createElement('div');
+    spinnerDiv.id = 'aiLoadingSpinner';
+    spinnerDiv.className = 'ai-loading-spinner';
+    
+    const spinnerContainer = document.createElement('div');
+    spinnerContainer.className = 'spinner-container';
+    
+    const spinner = document.createElement('div');
+    spinner.className = 'spinner';
+    
+    spinnerContainer.appendChild(spinner);
+    spinnerDiv.appendChild(spinnerContainer);
+    
+    // メッセージエリアに追加
+    messageArea.appendChild(spinnerDiv);
+    console.log('[Spinner] Spinner added to messageArea');
+    
+    // 最下部にスクロール
+    setTimeout(() => {
+        messageArea.scrollTop = messageArea.scrollHeight;
+    }, 50);
+}
+
+/**
+ * AIローディングスピナーを非表示
+ */
+function hideAILoadingSpinner() {
+    console.log('[Spinner] hideAILoadingSpinner called');
+    const spinner = document.getElementById('aiLoadingSpinner');
+    if (spinner) {
+        spinner.remove();
+        console.log('[Spinner] Spinner removed');
+    } else {
+        console.log('[Spinner] No spinner to remove');
     }
 } 

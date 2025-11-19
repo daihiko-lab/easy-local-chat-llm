@@ -150,6 +150,11 @@ function generateStepEditForm(step) {
                     <input type="text" id="edit_chat_title" class="form-control" value="${escapeHtml(step.title || 'Chat Session')}" placeholder="e.g., Chat with AI">
                 </div>
                 <div class="form-group">
+                    <label>Instruction Text (Optional)</label>
+                    <textarea id="edit_instruction_text" class="form-control" rows="3" placeholder="e.g., 相談を始めてください。">${escapeHtml(step.instruction_text || '')}</textarea>
+                    <div class="form-hint">Optional: Instruction message displayed when chat starts (e.g., "Please start your consultation.")</div>
+                </div>
+                <div class="form-group">
                     <label>Bot Name</label>
                     <input type="text" id="edit_bot_name" class="form-control" value="${escapeHtml(step.bot_name || 'AI Assistant')}" placeholder="e.g., Counselor AI">
                     <div class="form-hint">The name displayed for the AI in the chat interface</div>
@@ -165,6 +170,31 @@ function generateStepEditForm(step) {
                     <label>System Prompt</label>
                     <textarea id="edit_system_prompt" class="form-control" rows="8" placeholder="You are a helpful assistant...">${escapeHtml(step.system_prompt || '')}</textarea>
                     <div class="form-hint">Defines the AI's behavior and personality</div>
+                </div>
+                <div class="form-group">
+                    <label>Temperature</label>
+                    <input type="number" id="edit_temperature" class="form-control" value="${step.temperature !== undefined ? step.temperature : 0.7}" placeholder="0.7" min="0" max="2" step="0.1">
+                    <div class="form-hint">Controls randomness (0.0 = deterministic, 1.0 = creative, default: 0.7)</div>
+                </div>
+                <div class="form-group">
+                    <label>Top P (Nucleus Sampling)</label>
+                    <input type="number" id="edit_top_p" class="form-control" value="${step.top_p !== undefined ? step.top_p : 0.9}" placeholder="0.9" min="0" max="1" step="0.05">
+                    <div class="form-hint">Cumulative probability threshold (default: 0.9)</div>
+                </div>
+                <div class="form-group">
+                    <label>Top K</label>
+                    <input type="number" id="edit_top_k" class="form-control" value="${step.top_k !== undefined ? step.top_k : 40}" placeholder="40" min="1" max="100" step="1">
+                    <div class="form-hint">Number of top tokens to consider (default: 40)</div>
+                </div>
+                <div class="form-group">
+                    <label>Repeat Penalty</label>
+                    <input type="number" id="edit_repeat_penalty" class="form-control" value="${step.repeat_penalty !== undefined ? step.repeat_penalty : 1.1}" placeholder="1.1" min="1" max="2" step="0.1">
+                    <div class="form-hint">Prevents repetition (1.0 = no penalty, 2.0 = strong penalty, default: 1.1)</div>
+                </div>
+                <div class="form-group">
+                    <label>Max Tokens (num_predict)</label>
+                    <input type="number" id="edit_num_predict" class="form-control" value="${step.num_predict || ''}" placeholder="Leave empty for no limit" min="10" step="10">
+                    <div class="form-hint">Maximum number of tokens to generate (optional, may truncate responses)</div>
                 </div>
                 <div class="form-group">
                     <label>Time Limit (minutes)</label>
@@ -829,14 +859,31 @@ async function saveStepEdit() {
                 
             case 'chat':
                 step.title = getInputValueOrFallback('edit_chat_title', step.title || '');
+                step.instruction_text = getInputValueOrFallback('edit_instruction_text', step.instruction_text || '');
                 step.bot_name = getInputValueOrFallback('edit_bot_name', step.bot_name || '');
                 const botModelSelect = document.getElementById('edit_bot_model');
                 step.bot_model = botModelSelect ? botModelSelect.value.trim() : '';
                 step.system_prompt = getInputValueOrFallback('edit_system_prompt', step.system_prompt || '');
+                const temperature = getNumberValueOrFallback('edit_temperature', 0.7);
+                step.temperature = temperature !== null ? temperature : 0.7;
+                const top_p = getNumberValueOrFallback('edit_top_p', 0.9);
+                step.top_p = top_p !== null ? top_p : 0.9;
+                const top_k = getNumberValueOrFallback('edit_top_k', 40);
+                step.top_k = top_k !== null ? top_k : 40;
+                const repeat_penalty = getNumberValueOrFallback('edit_repeat_penalty', 1.1);
+                step.repeat_penalty = repeat_penalty !== null ? repeat_penalty : 1.1;
+                const num_predict = getNumberValueOrFallback('edit_num_predict', null);
+                step.num_predict = num_predict;
                 const timeLimit = getNumberValueOrFallback('edit_time_limit', null);
                 step.time_limit_minutes = timeLimit;
                 step.required = getCheckboxValueOrFallback('edit_required', step.required ?? true);
-                console.log('Saving chat step with bot_model:', step.bot_model);
+                console.log('Saving chat step with bot_model:', step.bot_model, 'params:', {
+                    temperature: step.temperature,
+                    top_p: step.top_p,
+                    top_k: step.top_k,
+                    repeat_penalty: step.repeat_penalty,
+                    num_predict: step.num_predict
+                });
                 break;
             
             case 'ai_evaluation':

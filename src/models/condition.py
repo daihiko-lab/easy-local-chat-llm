@@ -65,6 +65,11 @@ class ExperimentStep(BaseModel):
     bot_model: Optional[str] = None  # AIモデル名（例: "gemma3:4b"）
     bot_name: Optional[str] = None  # ボット名（例: "カウンセラーAI"）
     system_prompt: Optional[str] = None  # システムプロンプト
+    temperature: Optional[float] = 0.7  # AI応答の温度パラメータ（0.0〜2.0、デフォルト0.7）
+    top_p: Optional[float] = 0.9  # Nucleus samplingパラメータ（0.0〜1.0、デフォルト0.9）
+    top_k: Optional[int] = 40  # Top-k samplingパラメータ（整数、デフォルト40）
+    repeat_penalty: Optional[float] = 1.1  # 繰り返しペナルティ（1.0〜2.0、デフォルト1.1）
+    num_predict: Optional[int] = None  # 最大生成トークン数（Noneで制限なし）
     
     # AI評価用
     evaluation_model: Optional[str] = None  # AI評価用のモデル名

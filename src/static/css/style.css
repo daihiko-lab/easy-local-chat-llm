@@ -133,12 +133,16 @@ body {
     margin-bottom: 12px;
     border-radius: 8px;
     max-width: 80%;
+    max-height: 70vh; /* 画面高さの70%まで */
+    overflow-y: auto; /* 長い場合はスクロール */
     background-color: white;
     color: #333333;
     border: 1px solid #e0e0e0;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     font-size: 0.9rem;
     line-height: 1.4;
+    word-wrap: break-word; /* 長い単語も折り返し */
+    overflow-wrap: break-word;
 }
 
 .message.self {
@@ -487,6 +491,18 @@ body {
         align-items: flex-start;
         gap: 5px;
     }
+    
+    .message-icon {
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        min-height: 30px !important;
+    }
+    
+    .message-icon img {
+        width: 30px !important;
+        height: 30px !important;
+    }
 
     .session-info {
         font-size: 0.75em;
@@ -551,11 +567,16 @@ body {
 .message-container {
     display: flex;
     align-items: flex-start;
+    min-height: 30px;
 }
 
 .message-icon {
     width: 30px;
     height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    max-width: 30px;
+    max-height: 30px;
     border-radius: 50%;
     margin-right: 5px;
     display: flex;
@@ -563,12 +584,21 @@ body {
     align-items: center;
     color: white;
     font-weight: bold;
+    flex-shrink: 0;
+    overflow: hidden;
+    aspect-ratio: 1 / 1;
 }
 
 .message-icon img {
-    max-width: 100%;
-    max-height: 100%;
+    width: 100%;
+    height: 100%;
+    max-width: 30px;
+    max-height: 30px;
     border-radius: 50%;
+    object-fit: cover;
+    object-position: center;
+    flex-shrink: 0;
+    aspect-ratio: 1 / 1;
 }
 
 .message-text {
@@ -1409,4 +1439,75 @@ textarea.form-control {
 
 .btn-primary:hover {
     background: #0052CC;
+}
+
+/* AIローディングスピナー */
+.ai-loading-spinner {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    padding: 15px 20px;
+    margin: 5px 0;
+    width: 100%;
+    min-height: 50px;
+    position: relative;
+    z-index: 100;
+}
+
+.spinner-container {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #f0f7ff;
+    padding: 12px;
+    border-radius: 50%;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    animation: fadeIn 0.3s ease-in;
+    width: 44px;
+    height: 44px;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid #e3f2fd;
+    border-top: 3px solid #2196f3;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* スマホ対応 */
+@media (max-width: 768px) {
+    .ai-loading-spinner {
+        padding: 10px 15px;
+        min-height: 40px;
+    }
+    
+    .spinner-container {
+        width: 40px;
+        height: 40px;
+        padding: 10px;
+    }
+    
+    .spinner {
+        width: 20px;
+        height: 20px;
+        border-width: 2.5px;
+    }
 }

@@ -209,6 +209,7 @@ function getBlockSummary(step) {
         case 'chat':
             let summary = [];
             if (step.bot_name) summary.push(`Bot: ${step.bot_name}`);
+            if (step.temperature !== undefined) summary.push(`Temp: ${step.temperature}`);
             if (step.time_limit_minutes) summary.push(`${step.time_limit_minutes}分`);
             if (step.system_prompt) {
                 const preview = step.system_prompt.substring(0, 50);
@@ -506,6 +507,11 @@ function createNewStep(stepType) {
             newStep.bot_name = 'AI Assistant';
             newStep.bot_model = '';
             newStep.system_prompt = '';
+            newStep.temperature = 0.7;
+            newStep.top_p = 0.9;
+            newStep.top_k = 40;
+            newStep.repeat_penalty = 1.1;
+            newStep.num_predict = null;
             newStep.time_limit_minutes = null;
             break;
         case 'ai_evaluation':

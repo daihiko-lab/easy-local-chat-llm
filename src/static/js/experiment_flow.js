@@ -613,10 +613,54 @@ class ExperimentFlow {
     /**
      * チャットステップ
      */
-    showChatStep() {
+    async showChatStep() {
         // チャットコンテナを表示
         this.flowContainer.style.display = 'none';
         this.chatContainer.style.display = 'flex';
+        
+        // チャットステップのbot設定をサーバーに適用
+        try {
+            await fetch(`/api/sessions/${this.sessionId}/chat/configure`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    bot_model: this.currentStep.bot_model || 'gemma3:4b',
+                    system_prompt: this.currentStep.system_prompt || '',
+                    temperature: this.currentStep.temperature !== undefined ? this.currentStep.temperature : 0.7,
+                    top_p: this.currentStep.top_p !== undefined ? this.currentStep.top_p : 0.9,
+                    top_k: this.currentStep.top_k !== undefined ? this.currentStep.top_k : 40,
+                    repeat_penalty: this.currentStep.repeat_penalty !== undefined ? this.currentStep.repeat_penalty : 1.1,
+                    num_predict: this.currentStep.num_predict || null
+                })
+            });
+            console.log('[Flow] Chat configuration applied:', {
+                model: this.currentStep.bot_model,
+                temperature: this.currentStep.temperature,
+                top_p: this.currentStep.top_p,
+                top_k: this.currentStep.top_k,
+                repeat_penalty: this.currentStep.repeat_penalty,
+                num_predict: this.currentStep.num_predict
+            });
+        } catch (error) {
+            console.error('[Flow] Failed to configure chat:', error);
+        }
+        
+        // 教示文がある場合は表示
+        if (this.currentStep.instruction_text && this.currentStep.instruction_text.trim() !== '') {
+            const instructionMessage = {
+                type: 'instruction',
+                message: this.currentStep.instruction_text,
+                timestamp: new Date().toISOString()
+            };
+            
+            // displayMessage関数を使用してメッセージを表示
+            if (typeof displayMessage === 'function') {
+                displayMessage(instructionMessage);
+                console.log('[Flow] Instruction message displayed:', this.currentStep.instruction_text);
+            }
+        }
         
         // タイムリミットを設定（必要なら）
         if (this.currentStep.time_limit_minutes && this.currentStep.time_limit_minutes > 0) {
