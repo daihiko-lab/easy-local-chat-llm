@@ -26,7 +26,7 @@ body {
     align-items: center;
     border: none;
     outline: none;
-    /* overflow: hidden を削除してスクロール可能に */
+    overflow: hidden; /* メッセージエリアのみスクロール可能に */
 }
 
 .container {
@@ -36,6 +36,7 @@ body {
     padding: 20px;
     padding-bottom: max(20px, env(safe-area-inset-bottom)); /* iPhone Safe Area対応 */
     box-sizing: border-box;
+    overflow: hidden; /* メッセージエリアのみスクロール可能に */
 }
 
 .chat-container {
@@ -1442,29 +1443,23 @@ textarea.form-control {
 }
 
 /* AIローディングスピナー */
-.ai-loading-spinner {
-    display: block !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    padding: 15px 20px;
-    margin: 5px 0;
-    width: 100%;
+.ai-loading-spinner-wrapper {
+    display: flex !important;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 12px 16px;
     min-height: 50px;
-    position: relative;
-    z-index: 100;
+    background-color: #f0f7ff !important;
 }
 
 .spinner-container {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
-    background: #f0f7ff;
-    padding: 12px;
-    border-radius: 50%;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    background: transparent;
+    width: 28px;
+    height: 28px;
     animation: fadeIn 0.3s ease-in;
-    width: 44px;
-    height: 44px;
 }
 
 @keyframes fadeIn {
@@ -1494,20 +1489,19 @@ textarea.form-control {
 
 /* スマホ対応 */
 @media (max-width: 768px) {
-    .ai-loading-spinner {
-        padding: 10px 15px;
+    .ai-loading-spinner-wrapper {
+        padding: 10px 12px;
         min-height: 40px;
     }
     
     .spinner-container {
-        width: 40px;
-        height: 40px;
-        padding: 10px;
+        width: 24px;
+        height: 24px;
     }
     
     .spinner {
-        width: 20px;
-        height: 20px;
+        width: 18px;
+        height: 18px;
         border-width: 2.5px;
     }
 }
