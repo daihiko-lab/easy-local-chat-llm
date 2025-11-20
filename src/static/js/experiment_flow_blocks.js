@@ -127,6 +127,7 @@ function renderBranchPath(branch, stepIndex, branchIndex) {
                     ${isCollapsed ? '▶' : '▼'}
                 </button>
                 <span style="font-size: 13px; font-weight: 400; color: #374151; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">${branch.condition_label || 'Branch ' + (branchIndex + 1)}</span>
+                <span style="font-size: 11px; color: #9ca3af; font-family: 'SF Mono', Monaco, monospace;">(${branch.branch_id || 'no_id'})</span>
                 <span style="font-size: 11px; color: #9ca3af; font-family: 'SF Mono', Monaco, monospace;">${getBranchConditionDisplay(branch)}</span>
                 <div style="margin-left: auto; display: flex; gap: 4px; opacity: 0.6;">
                     <button onclick="addStepToBranch(${stepIndex}, ${branchIndex}); event.stopPropagation();" style="padding: 3px 8px; font-size: 10px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #6b7280; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">+ Step</button>
@@ -378,9 +379,23 @@ function addBranchPath(stepIndex) {
         step.branches = [];
     }
     
+    // Prompt for branch_id (data code)
+    const branchId = prompt('Branch ID (data code, e.g. branch_interpersonal, branch_empathy):');
+    if (!branchId || branchId.trim() === '') {
+        alert('Branch ID is required');
+        return;
+    }
+    
+    // Prompt for label (display name)
+    const label = prompt('Branch label (display name, e.g. 人間関係の悩み, 共感条件):');
+    if (!label || label.trim() === '') {
+        alert('Branch label is required');
+        return;
+    }
+    
     const newBranch = {
-        branch_id: `branch_${Date.now()}_${step.branches.length + 1}`,
-        condition_label: `Branch ${String.fromCharCode(65 + step.branches.length)}`,
+        branch_id: branchId.trim(),
+        condition_label: label.trim(),
         condition_type: 'random',  // デフォルトはランダム割り当て
         condition_value: '',
         weight: 1,  // ランダム割り当ての重み
@@ -405,8 +420,14 @@ function editBranchPath(stepIndex, branchIndex) {
     const step = experimentFlowSteps[stepIndex];
     const branch = step.branches[branchIndex];
     
+    // Edit branch_id (data code)
+    const branchId = prompt('Branch ID (data code, e.g. branch_interpersonal, branch_empathy):', branch.branch_id || '');
+    if (branchId !== null && branchId.trim() !== '') {
+        branch.branch_id = branchId.trim();
+    }
+    
     // Edit label
-    const label = prompt('Branch label:', branch.condition_label);
+    const label = prompt('Branch label (display name, e.g. 人間関係の悩み, 共感条件):', branch.condition_label);
     if (label !== null) {
         branch.condition_label = label;
     }
@@ -547,16 +568,7 @@ function createNewStep(stepType) {
             break;
         case 'branch':
             newStep.title = 'Conditional Branch';
-            newStep.branches = [
-                {
-                    branch_id: `branch_${Date.now()}_1`,
-                    condition_label: 'Branch A',
-                    condition_type: 'random',
-                    condition_value: '',
-                    weight: 1,
-                    steps: []
-                }
-            ];
+            newStep.branches = [];  // 空で作成、管理者が手動でブランチパスを追加
             break;
         case 'debriefing':
             newStep.title = 'Thank you for participating';
