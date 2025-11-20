@@ -469,6 +469,7 @@ class DataExporter:
         2. ブランチ条件（実験設計による）：
            - {step_id}_condition: ブランチID（例: "branch_empathy"）
            - {step_id}_condition_label: ブランチラベル（例: "共感条件"）
+           - {step_id}_condition_value: 条件値・数値コード（例: "1", "2"）
         
         3. チャット情報（各チャットステップごと）：
            - {step_id}_ai_model: 使用されたAIモデル
@@ -570,10 +571,14 @@ class DataExporter:
                     field_name = f"{branch_step_id}_condition"
                     if field_name not in all_branch_fields:
                         all_branch_fields[field_name] = True
-                    # ブランチラベルの列も追加
+                    # ブランチラベルの列
                     label_field = f"{branch_step_id}_condition_label"
                     if label_field not in all_branch_fields:
                         all_branch_fields[label_field] = True
+                    # ブランチ値の列（数値コード）
+                    value_field = f"{branch_step_id}_condition_value"
+                    if value_field not in all_branch_fields:
+                        all_branch_fields[value_field] = True
             
             # 🆕 新形式: step_responsesからアンケート回答を収集
             if hasattr(session, 'step_responses') and session.step_responses:
@@ -610,6 +615,10 @@ class DataExporter:
                                         all_branch_fields[field_name] = True
                                 if 'condition_label' in client_data:
                                     field_name = f"{step_id}_condition_label"
+                                    if field_name not in all_branch_fields:
+                                        all_branch_fields[field_name] = True
+                                if 'condition_value' in client_data:
+                                    field_name = f"{step_id}_condition_value"
                                     if field_name not in all_branch_fields:
                                         all_branch_fields[field_name] = True
             
@@ -757,22 +766,24 @@ class DataExporter:
                                 answer = json.dumps(answer, ensure_ascii=False)
                             survey_answers[response.question_id] = answer
             
-            # ブランチ選択結果を追加（IDとラベルの両方）
+            # ブランチ選択結果を追加（ID、ラベル、値の3種類）
             branch_answers = {}
             
-            # 実験フローからブランチラベルを取得するヘルパー関数
-            def get_branch_label_from_flow(branch_step_id, branch_id):
-                """実験フローから指定されたbranch_idのラベルを取得"""
+            # 実験フローからブランチ情報を取得するヘルパー関数
+            def get_branch_info_from_flow(branch_step_id, branch_id):
+                """実験フローから指定されたbranch_idのラベルと値を取得"""
                 if not experiment_flow_raw:
-                    return ''
+                    return '', ''
                 for step_dict in experiment_flow_raw:
                     if isinstance(step_dict, dict) and step_dict.get('step_id') == branch_step_id:
                         if step_dict.get('step_type') == 'branch':
                             branches = step_dict.get('branches', [])
                             for branch in branches:
                                 if branch.get('branch_id') == branch_id:
-                                    return branch.get('condition_label', '')
-                return ''
+                                    label = branch.get('condition_label', '')
+                                    value = branch.get('condition_value', '')
+                                    return label, value
+                return '', ''
             
             # 新形式: assigned_conditionsから取得（優先）
             if hasattr(session, 'assigned_conditions') and session.assigned_conditions:
@@ -780,9 +791,12 @@ class DataExporter:
                     # ブランチID
                     field_name = f"{branch_step_id}_condition"
                     branch_answers[field_name] = branch_id
-                    # ブランチラベル（実験フローから取得）
+                    # ブランチラベルと値（実験フローから取得）
+                    label, value = get_branch_info_from_flow(branch_step_id, branch_id)
                     label_field = f"{branch_step_id}_condition_label"
-                    branch_answers[label_field] = get_branch_label_from_flow(branch_step_id, branch_id)
+                    branch_answers[label_field] = label
+                    value_field = f"{branch_step_id}_condition_value"
+                    branch_answers[value_field] = value
             
             # 旧形式: step_responsesから取得（後方互換性）
             if hasattr(session, 'step_responses') and session.step_responses:
@@ -798,6 +812,10 @@ class DataExporter:
                                     field_name = f"{step_id}_condition_label"
                                     if field_name not in branch_answers:  # 新形式を優先
                                         branch_answers[field_name] = client_data['condition_label']
+                                if 'condition_value' in client_data:
+                                    field_name = f"{step_id}_condition_value"
+                                    if field_name not in branch_answers:  # 新形式を優先
+                                        branch_answers[field_name] = client_data['condition_value']
             
             for field_name in all_branch_fields.keys():
                 row_data.append(branch_answers.get(field_name, ''))
