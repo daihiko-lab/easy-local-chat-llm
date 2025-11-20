@@ -1,7 +1,9 @@
-#!/bin/zsh
-# 開発モードでサーバーを起動（自動リロード有効）
+#!/usr/bin/env bash
+# Easy Local Chat - Development Server Startup Script (with auto-reload)
 
-# プロジェクトのルートディレクトリに移動
+set -e  # Exit on error
+
+# Move to project root
 cd "$(dirname "$0")/.."
 
 echo "=========================================="
@@ -9,24 +11,33 @@ echo "Easy Local Chat - Development Mode"
 echo "=========================================="
 echo ""
 
-# 仮想環境の確認
+# Check/setup virtual environment
 if [ ! -d "venv" ]; then
-    echo "Virtual environment not found. Creating..."
+    echo "Creating virtual environment..."
     python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-else
-    source venv/bin/activate
 fi
+
+# Activate virtual environment
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+elif [ -f "venv/Scripts/activate" ]; then
+    source venv/Scripts/activate
+else
+    echo "Error: Cannot find virtual environment activation script"
+    exit 1
+fi
+
+# Install/update dependencies
+pip install -q -r requirements.txt
 
 echo "Starting development server (auto-reload enabled)..."
 echo ""
-echo "📝 Access URLs will be displayed after startup completes."
+echo "📝 Access URLs will be displayed after startup."
 echo ""
-echo "Press Ctrl+C to stop the server"
+echo "Press Ctrl+C to stop"
 echo "=========================================="
 echo ""
 
-# 開発サーバーを起動（自動リロード有効）
-uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
+# Start development server with auto-reload
+uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 

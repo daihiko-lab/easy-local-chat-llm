@@ -8,9 +8,26 @@ from ..models.message import Message
 class MessageStore:
     """メッセージストアクラス"""
     
-    def __init__(self, data_dir: str = "data/messages"):
-        self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, data_dir: str = "data/messages", experiment_manager=None):
+        self.base_data_dir = Path(data_dir)
+        self.experiment_manager = experiment_manager
+        # ディレクトリは実際に使用する時（data_dirプロパティ）で作成される
+    
+    def _get_current_message_dir(self) -> Path:
+        """現在のアクティブな実験のメッセージディレクトリを取得"""
+        if self.experiment_manager:
+            current_data_dir = self.experiment_manager.get_current_data_dir()
+            message_dir = current_data_dir / "messages"
+            # ベースディレクトリ以外（実験ディレクトリ）の場合のみサブディレクトリを作成
+            if current_data_dir != self.experiment_manager.base_dir:
+                message_dir.mkdir(parents=True, exist_ok=True)
+            return message_dir
+        return self.base_data_dir
+    
+    @property
+    def data_dir(self) -> Path:
+        """動的にメッセージディレクトリを取得"""
+        return self._get_current_message_dir()
     
     def save_message(self, message: Message):
         """メッセージを保存"""

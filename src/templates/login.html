@@ -82,14 +82,10 @@
         <div class="login-container">
             <h1>Login</h1>
             
-            <!-- Connection Status Warning / Waiting Room -->
-            <div id="connection-warning" style="display: none; padding: 15px; margin-bottom: 20px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; color: #856404;">
-                <strong id="warning-title">⏳ Please Wait</strong>
-                <p id="warning-message" style="margin: 5px 0 0 0; font-size: 0.9em;"></p>
-                <div id="waiting-info" style="margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.5); border-radius: 4px; font-size: 0.9em;">
-                    <div id="session-count" style="margin-bottom: 5px;"></div>
-                    <div style="font-size: 0.85em; color: #666;">The page will automatically refresh when a slot becomes available.</div>
-                </div>
+            <!-- Connection Status Warning -->
+            <div id="connection-warning" style="display: none; padding: 15px; margin-bottom: 20px; background: #fee; border: 2px solid #f88; border-radius: 8px; color: #c00;">
+                <strong id="warning-title">🔴 No Active Experiment</strong>
+                <p id="warning-message" style="margin: 5px 0 0 0; font-size: 0.9em;">There is currently no active experiment.<br>Please contact the administrator.</p>
             </div>
             
             <!-- Info Message -->
@@ -99,24 +95,32 @@
             </div>
             
             <form id="login-form">
-                <label for="client-id">Client ID:</label>
-                <input type="text" id="client-id" name="client-id" required placeholder="Enter your name">
+                <label for="participant-code">Participant Code:</label>
+                <input type="text" id="participant-code" name="participant-code" required placeholder="e.g., a3k9r2" style="font-family: monospace; font-weight: 600; font-size: 18px;">
+                <div style="font-size: 12px; color: #666; margin-top: -10px; margin-bottom: 15px;">
+                    Enter the code provided by the researcher
+                </div>
                 
-                <button type="submit">Enter Chat Room</button>
+                <label for="participant-password">PIN (4 digits):</label>
+                <input type="text" id="participant-password" name="participant-password" required placeholder="e.g., 7352" maxlength="4" pattern="[0-9]{4}" style="font-family: monospace; font-weight: 700; font-size: 24px; letter-spacing: 3px;">
+                <div style="font-size: 12px; color: #666; margin-top: -10px; margin-bottom: 15px;">
+                    Enter the 4-digit PIN provided by the researcher
+                </div>
+                
+                <button type="submit">Start Experiment</button>
             </form>
         </div>
     </div>
     <script>
         // ページ読み込み時の処理
         window.addEventListener('DOMContentLoaded', async function() {
+            // 実験の完全性を保つため、すべてのストレージをクリア
+            console.log('[Login] Clearing all storage for clean experiment session');
+            localStorage.clear();
+            sessionStorage.clear();
+            
             // 接続状況をチェック
             await checkConnectionStatus();
-            
-            // 保存されたクライアントIDをチェック
-            const savedClientId = localStorage.getItem('client_id');
-            if (savedClientId) {
-                document.getElementById('client-id').value = savedClientId;
-            }
         });
         
         // 接続状況をチェック
@@ -126,49 +130,30 @@
                 const data = await response.json();
                 
                 const warning = document.getElementById('connection-warning');
-                const warningTitle = document.getElementById('warning-title');
-                const warningMessage = document.getElementById('warning-message');
-                const waitingInfo = document.getElementById('waiting-info');
-                const sessionCount = document.getElementById('session-count');
                 const loginForm = document.getElementById('login-form');
                 const submitButton = loginForm.querySelector('button[type="submit"]');
                 
                 if (!data.is_available) {
-                    // 待機状態
+                    // 実験がない場合
                     warning.style.display = 'block';
                     submitButton.disabled = true;
                     submitButton.style.opacity = '0.5';
                     submitButton.style.cursor = 'not-allowed';
                     submitButton.textContent = 'Please Wait...';
+                    document.getElementById('participant-code').disabled = true;
+                    document.getElementById('participant-password').disabled = true;
                     
-                    // Disable form input
-                    document.getElementById('client-id').disabled = true;
-                    
-                    // 待機情報を表示
-                    if (data.waiting_info) {
-                        warningTitle.textContent = '⏳ Waiting Room';
-                        warningMessage.textContent = `The experiment "${data.waiting_info.experiment_name}" is currently full.`;
-                        waitingInfo.style.display = 'block';
-                        sessionCount.innerHTML = `<strong>Current Sessions:</strong> ${data.waiting_info.current_sessions} / ${data.waiting_info.max_sessions}`;
-                    } else {
-                        warningTitle.textContent = '⏳ Please Wait';
-                        warningMessage.textContent = data.reason || 'Another user is currently connected. Please wait.';
-                        waitingInfo.style.display = 'block';
-                        sessionCount.textContent = '';
-                    }
-                    
-                    // Recheck every 3 seconds
-                    setTimeout(checkConnectionStatus, 3000);
+                    // 定期チェック（実験が開始されるのを待つ）
+                    setTimeout(checkConnectionStatus, 5000);
                 } else {
                     // 利用可能な場合
                     warning.style.display = 'none';
                     submitButton.disabled = false;
                     submitButton.style.opacity = '1';
                     submitButton.style.cursor = 'pointer';
-                    submitButton.textContent = 'Enter Chat Room';
-                    
-                    // フォームの入力を有効化
-                    document.getElementById('client-id').disabled = false;
+                    submitButton.textContent = 'Start Experiment';
+                    document.getElementById('participant-code').disabled = false;
+                    document.getElementById('participant-password').disabled = false;
                 }
             } catch (error) {
                 console.error('Failed to check connection status:', error);
@@ -178,20 +163,44 @@
         // フォーム送信
         document.getElementById('login-form').addEventListener('submit', async function(event) {
             event.preventDefault();
-            const clientId = document.getElementById('client-id').value.trim();
+            const participantCode = document.getElementById('participant-code').value.trim();
+            const participantPassword = document.getElementById('participant-password').value.trim();
             
-            if (!clientId) {
-                alert('Client IDを入力してください');
+            if (!participantCode) {
+                alert('Please enter your participant code');
                 return;
             }
             
-            // クライアントIDをlocalStorageに保存
-            localStorage.setItem('client_id', clientId);
+            if (!participantPassword) {
+                alert('Please enter your password');
+                return;
+            }
             
-            // テンプレート設定を使って新しいセッションを自動作成
-            // 常に実験モードで動作（実験用テンプレートからランダムに選択）
-            let url = `/chat?client_id=${encodeURIComponent(clientId)}&auto_create=true`;
-            window.location.href = url;
+            try {
+                // サーバーにログインリクエストを送信してトークンを取得
+                const formData = new FormData();
+                formData.append('participant_code', participantCode.toLowerCase());
+                formData.append('participant_password', participantPassword.toLowerCase());
+                
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    alert(error.error || 'Login failed');
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                // トークンを使ってチャット画面に遷移
+                window.location.href = `/chat?token=${encodeURIComponent(data.token)}`;
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('ログインに失敗しました。もう一度お試しください。');
+            }
         });
     </script>
 </body>

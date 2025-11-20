@@ -41,8 +41,7 @@ function getColorFromClientId(clientId) {
 const COLOR_PRESETS = {
     'admin': 'hsl(210, 80%, 60%)',      // 管理者用の青
     'moderator': 'hsl(280, 75%, 60%)',  // モデレーター用の紫
-    'system': 'hsl(0, 0%, 50%)',        // システムメッセージ用のグレー
-    'bot': 'hsl(150, 70%, 50%)'         // ボット用の緑
+    'system': 'hsl(0, 0%, 50%)'         // システムメッセージ用のグレー
 };
 
 // クライアントIDから色を取得（プリセットがある場合はそちらを優先）
@@ -52,141 +51,156 @@ function getClientColor(clientId) {
 
 let clientId;
 let currentSessionId;
-
-async function checkSession() {
-    // 現在のセッションIDを取得
-    try {
-        const response = await fetch('/api/sessions/current/info');
-        if (response.ok) {
-            const data = await response.json();
-            const currentSessionId = data.session.session_id;
-            const savedSessionId = localStorage.getItem('session_id');
-            
-            // 保存されたセッションIDと現在のセッションIDが異なる場合
-            if (savedSessionId && savedSessionId !== currentSessionId) {
-                // Session changed, logout
-                console.log('Session has been updated. Re-login required.');
-                localStorage.removeItem('client_id');
-                localStorage.removeItem('session_id');
-                alert('A new session has been started. Please log in again.');
-                window.location.href = '/';
-                return false;
-            }
-            
-            // 現在のセッションIDを保存
-            localStorage.setItem('session_id', currentSessionId);
-            return true;
-        }
-    } catch (error) {
-        console.error('Session check error:', error);
-    }
-    return true;
-}
+let experimentFlowInitialized = false; // フロー初期化フラグ
 
 async function connect() {
-    // セッションチェック
-    const sessionValid = await checkSession();
-    if (!sessionValid) {
+    if (typeof showDebugInfo === 'function') showDebugInfo('[connect] Starting connection...');
+    
+    // リロード検出：既にチャットセッションが開始されている場合、ログイン画面に戻す
+    if (sessionStorage.getItem('chat_session_active') === 'true') {
+        alert('Page reload is not allowed during the experiment. Please log in again.');
+        sessionStorage.removeItem('chat_session_active');
+        window.location.href = '/';
         return;
     }
+    
+    // 初回訪問フラグを設定
+    sessionStorage.setItem('chat_session_active', 'true');
 
-    // クエリパラメータからclient_id、session_id、パスワード類を取得
+    // トークンとクライアントIDを取得
+    let token = null;
     const urlParams = new URLSearchParams(window.location.search);
-    clientId = urlParams.get('client_id');
-    let sessionId = urlParams.get('session_id');
-    const sessionPassword = urlParams.get('session_password');
-    const userPassword = urlParams.get('user_password');
+    token = urlParams.get('token');
 
-    // クエリパラメータにない場合はwindow.CHAT_CONFIGから取得
-    if (!clientId && window.CHAT_CONFIG) {
-        clientId = window.CHAT_CONFIG.client_id;
+    // window.CHAT_CONFIGから取得（常に新規セッション）
+    if (!token && window.CHAT_CONFIG) {
+        token = window.CHAT_CONFIG.token;
     }
     
-    if (!sessionId && window.CHAT_CONFIG) {
-        sessionId = window.CHAT_CONFIG.session_id;
-    }
-
-    // それでもない場合はlocalStorageから取得
-    if (!clientId) {
-        clientId = localStorage.getItem('client_id');
-    }
-    
-    if (!sessionId) {
-        sessionId = localStorage.getItem('session_id');
-    }
-
-    if (!clientId) {
-        alert('Client ID is required.');
-        window.location.href = '/'; // ログインページに戻す
+    if (!token) {
+        if (typeof showDebugInfo === 'function') showDebugInfo('[connect] ERROR: No token');
+        alert('Invalid access. Please log in again.');
+        window.location.href = '/';
         return;
     }
-
-    // クライアントIDとセッションIDをlocalStorageに保存（念のため）
-    localStorage.setItem('client_id', clientId);
-    if (sessionId) {
-        localStorage.setItem('session_id', sessionId);
+    
+    if (typeof showDebugInfo === 'function') showDebugInfo('[connect] Token OK');
+    
+    // クライアントIDと条件IDを取得
+    clientId = window.CHAT_CONFIG ? window.CHAT_CONFIG.client_id : null;
+    let conditionId = window.CHAT_CONFIG ? window.CHAT_CONFIG.condition_id : null;
+    
+    if (!clientId) {
+        if (typeof showDebugInfo === 'function') showDebugInfo('[connect] ERROR: No clientId');
+        alert('Client ID is required.');
+        window.location.href = '/';
+        return;
     }
-    // パスワードも保存
-    if (sessionPassword && sessionId) {
-        localStorage.setItem('session_password_' + sessionId, sessionPassword);
-    }
-    if (userPassword && sessionId && clientId) {
-        localStorage.setItem('user_password_' + sessionId + '_' + clientId, userPassword);
-    }
+    
+    if (typeof showDebugInfo === 'function') showDebugInfo('[connect] ClientId: ' + clientId);
+    
+    // 実験では常に新規セッション作成（念のためストレージをクリア）
+    sessionId = null;  // 常にnull
+    localStorage.clear();  // すべてクリア（ログイン画面でも既にクリア済み）
 
     // グローバル変数に保存
-    currentSessionId = sessionId;
+    currentSessionId = null;  // 常に新規セッション
 
-    // WebSocket接続にsession_idを含める
-    const wsUrl = sessionId 
-        ? `ws://${window.location.host}/ws?session_id=${sessionId}`
-        : `ws://${window.location.host}/ws`;
+    // 🆕 スマホのネットワーク遅延対策：WebSocket接続前にHTTPリクエストでネットワークを起こす
+    if (typeof showDebugInfo === 'function') showDebugInfo('[connect] Waking up network...');
+    try {
+        await fetch('/api/health');
+        if (typeof showDebugInfo === 'function') showDebugInfo('[connect] Network ready');
+    } catch (error) {
+        if (typeof showDebugInfo === 'function') showDebugInfo('[connect] Network wake-up failed, proceeding anyway');
+    }
+
+    // WebSocket接続URL（常に新規セッション）
+    const wsUrl = `ws://${window.location.host}/ws`;
     
+    if (typeof showDebugInfo === 'function') {
+        showDebugInfo('[connect] window.location.host: ' + window.location.host);
+        showDebugInfo('[connect] window.location.hostname: ' + window.location.hostname);
+        showDebugInfo('[connect] window.location.protocol: ' + window.location.protocol);
+        showDebugInfo('[connect] Opening WebSocket: ' + wsUrl);
+    }
     ws = new WebSocket(wsUrl);
     
+    // タイムアウト設定：10秒以内に接続できない場合（スマホのネットワーク遅延を考慮）
+    const wsTimeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+            if (typeof showDebugInfo === 'function') showDebugInfo('[WS] TIMEOUT: Connection not established after 10s');
+            if (typeof showDebugInfo === 'function') showDebugInfo('[WS] ReadyState: ' + ws.readyState + ' (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)');
+            alert('WebSocket connection timeout. Please check your network connection and try again.');
+        }
+    }, 10000);
+    
     ws.onopen = async function() {
+        clearTimeout(wsTimeout);
+        if (typeof showDebugInfo === 'function') showDebugInfo('[WS] Connected!');
         document.getElementById('status-text').textContent = 'Online';
         document.getElementById('status-icon').className = 'online';
         document.getElementById('client-id').textContent = `Client ID: ${clientId}`;
         
-        // 過去のメッセージを読み込む
-        await loadPastMessages();
-        
-        // 参加メッセージを送信
-        sendSystemMessage('join');
+        // 参加メッセージを送信（tokenとcondition_idを含む）
+        const joinMessage = {
+            type: 'join',
+            token: token,
+            client_id: clientId,
+            condition_id: conditionId,  // 常に新規セッション
+            timestamp: new Date().toISOString()
+        };
+        if (typeof showDebugInfo === 'function') showDebugInfo('[WS] Sending join message');
+        ws.send(JSON.stringify(joinMessage));
     };
 
     ws.onmessage = function(event) {
         const data = JSON.parse(event.data);
+        if (typeof showDebugInfo === 'function') showDebugInfo('[WS] Message received: ' + data.type);
         
-        // セッション終了メッセージの処理
-        if (data.type === 'session_end') {
+        // セッション作成メッセージの処理
+        if (data.type === 'session_created') {
+            currentSessionId = data.session_id;
+            if (typeof showDebugInfo === 'function') showDebugInfo('[WS] Session created: ' + data.session_id);
+            // 実験ではlocalStorageを使用しない（リロード検出のため）
+            // セッション表示を更新
+            const sessionElement = document.getElementById('session-id');
+            if (sessionElement) {
+                sessionElement.textContent = data.session_id;
+            }
+            
+            // 🆕 常にフローシステムを初期化（旧形式は自動変換される）
+            initializeExperimentFlow();
+        } else if (data.type === 'instruction') {
+            // 教示文メッセージの処理（joinメッセージの後にサーバーから送信される）
             displayMessage(data);
+        } else if (data.type === 'session_end') {
+            displayMessage(data);
+            // すべてのストレージをクリア
+            localStorage.clear();
+            sessionStorage.clear();
             // 3秒後にログイン画面へリダイレクト
             setTimeout(() => {
                 alert('Session has been ended. Please login again.');
-                // localStorageのクリーンアップ
-                const sessionId = localStorage.getItem('session_id');
-                const clientId = localStorage.getItem('client_id');
-                localStorage.removeItem('client_id');
-                localStorage.removeItem('session_id');
-                if (sessionId) {
-                    localStorage.removeItem('session_password_' + sessionId);
-                }
-                if (sessionId && clientId) {
-                    localStorage.removeItem('user_password_' + sessionId + '_' + clientId);
-                }
                 window.location.href = '/';
             }, 3000);
         } else if (data.type === 'bot') {
             // ボットメッセージの処理
+            hideAILoadingSpinner();
             displayMessage(data);
+        } else if (data.type === 'message' && data.client_id === clientId) {
+            // 自分のメッセージはすでに表示済みなのでスキップ
+            console.log('[WS] Skipping own message (already displayed)');
         } else {
             displayMessage(data);
         }
     };
 
     ws.onclose = function(event) {
+        if (typeof showDebugInfo === 'function') {
+            showDebugInfo('[WS] Closed: code=' + event.code + ', reason=' + (event.reason || 'no reason'));
+            showDebugInfo('[WS] Closed: wasClean=' + event.wasClean);
+        }
         if (event.reason === "Client ID already in use") {
             alert("This ID is already in use. Please log in with a different ID.");
             window.location.href = '/'; // ログインページに戻す
@@ -196,31 +210,75 @@ async function connect() {
         } else {
             document.getElementById('status-text').textContent = 'Offline';
             document.getElementById('status-icon').className = 'offline';
-            console.log('WebSocket closed:', event);
         }
     };
 
     ws.onerror = function(error) {
+        if (typeof showDebugInfo === 'function') {
+            showDebugInfo('[WS] ERROR occurred');
+            showDebugInfo('[WS] ERROR type: ' + error.type);
+            showDebugInfo('[WS] ERROR target.url: ' + (error.target ? error.target.url : 'N/A'));
+            showDebugInfo('[WS] ERROR target.readyState: ' + (error.target ? error.target.readyState : 'N/A'));
+        }
         console.error('WebSocket error:', error);
     };
 }
 
 function sendMessage() {
     const input = document.getElementById('messageInput');
+    if (!input) {
+        console.error('[Chat] messageInput element not found');
+        return;
+    }
+    
     const message = input.value.trim();
     
-    if (message && ws && ws.readyState === WebSocket.OPEN) {
-        const messageData = {
-            type: 'message',
-            client_id: clientId,
-            message: message,
-            timestamp: new Date().toISOString()
-        };
-        
-        ws.send(JSON.stringify(messageData));
-        input.value = '';
+    if (!message) {
+        console.log('[Chat] Empty message, ignoring');
+        return;
     }
+    
+    if (!ws) {
+        console.error('[Chat] WebSocket not initialized');
+        alert('接続が確立されていません。ページをリロードしてください。');
+        return;
+    }
+    
+    if (ws.readyState !== WebSocket.OPEN) {
+        console.error('[Chat] WebSocket not open, state:', ws.readyState);
+        alert('接続が切断されています。ページをリロードしてください。');
+        return;
+    }
+    
+    if (!clientId) {
+        console.error('[Chat] clientId not set');
+        alert('クライアントIDが設定されていません。');
+        return;
+    }
+    
+    const messageData = {
+        type: 'message',
+        client_id: clientId,
+        message: message,
+        timestamp: new Date().toISOString()
+    };
+    
+    console.log('[Chat] Sending message:', messageData);
+    
+    // 自分のメッセージを即座に表示
+    displayMessage(messageData);
+    
+    // WebSocketで送信
+    ws.send(JSON.stringify(messageData));
+    input.value = '';
+    
+    // AIローディングスピナーを表示
+    showAILoadingSpinner();
 }
+
+// グローバルスコープに明示的にエクスポート
+window.sendMessage = sendMessage;
+window.displayMessage = displayMessage;
 
 function sendSystemMessage(type) {
     if (ws) {
@@ -238,12 +296,20 @@ function displayMessage(data) {
     const messageDiv = document.createElement('div');
 
     // システムメッセージの場合、特別なクラスを追加
-    if (data.type === 'system' || data.type === 'session_end') {
+    if (data.type === 'system' || data.type === 'session_end' || data.type === 'instruction') {
         messageDiv.className = `message system`;
         if (data.type === 'session_end') {
             messageDiv.style.backgroundColor = '#fff3cd';
             messageDiv.style.color = '#856404';
             messageDiv.style.fontWeight = 'bold';
+        } else if (data.type === 'instruction') {
+            // 教示文は目立つスタイルで表示
+            messageDiv.style.backgroundColor = '#e3f2fd';
+            messageDiv.style.color = '#1565c0';
+            messageDiv.style.fontWeight = 'bold';
+            messageDiv.style.fontStyle = 'normal';
+            messageDiv.style.borderLeft = '4px solid #1976d2';
+            messageDiv.style.padding = '12px 15px';
         }
         messageDiv.textContent = data.message; // メッセージ内容を直接設定
     } else {
@@ -262,12 +328,9 @@ function displayMessage(data) {
         // アイコンを表示
         const iconDiv = document.createElement('div');
         iconDiv.className = 'message-icon';
-        if (isBot) {
-            iconDiv.className = 'message-icon bot-icon';
-            iconDiv.style.backgroundColor = COLOR_PRESETS['bot'];
-        } else {
-            iconDiv.style.backgroundColor = data.client_id === clientId ? getColorFromClientId(clientId) : getColorFromClientId(data.client_id);
-        }
+        // 内部ID（internal_id）を使って色を生成（ランダム性を確保）
+        const colorId = data.internal_id || data.client_id;
+        iconDiv.style.backgroundColor = getColorFromClientId(colorId);
         const img = document.createElement('img');
         img.src = `/static/images/default_icon.png`; // アイコンのパス
         iconDiv.appendChild(img);
@@ -280,9 +343,10 @@ function displayMessage(data) {
         // クライアントIDを表示
         const clientIdSpan = document.createElement('span');
         clientIdSpan.className = 'client-id';
+        // 既に上で定義されたcolorIdを使用
         if (isBot) {
             clientIdSpan.textContent = 'AI Assistant';
-            clientIdSpan.style.color = COLOR_PRESETS['bot'];
+            clientIdSpan.style.color = getColorFromClientId(colorId);
             clientIdSpan.style.fontWeight = 'bold';
         } else {
             clientIdSpan.textContent = `Client ID: ${data.client_id}`;
@@ -351,23 +415,17 @@ async function loadPastMessages() {
     try {
         // セッションIDが設定されていない場合は何もしない
         if (!currentSessionId) {
-            console.log('[loadPastMessages] No session ID available');
             return;
         }
-        
-        console.log(`[loadPastMessages] Loading messages for session: ${currentSessionId}, clientId: ${clientId}`);
         
         // セッションのメッセージを取得
         const messagesResponse = await fetch(`/api/sessions/${currentSessionId}/messages`);
         if (!messagesResponse.ok) {
-            console.log('[loadPastMessages] Failed to fetch messages, status:', messagesResponse.status);
             return;
         }
         
         const data = await messagesResponse.json();
         const messages = data.messages;
-        
-        console.log(`[loadPastMessages] Total messages in session: ${messages.length}`);
         
         // 自分が最初に参加した時刻を探す
         let myJoinTime = null;
@@ -376,14 +434,12 @@ async function loadPastMessages() {
                 msg.client_id === clientId && 
                 msg.content.includes('joined')) {
                 myJoinTime = new Date(msg.timestamp);
-                console.log(`[loadPastMessages] Found join message at: ${myJoinTime.toISOString()}`);
                 break;
             }
         }
         
         // 自分が参加した記録がない場合は、履歴を表示しない（初回参加）
         if (!myJoinTime) {
-            console.log('[loadPastMessages] First time joining this session - no past messages to load');
             return;
         }
         
@@ -415,8 +471,6 @@ async function loadPastMessages() {
             
             loadedCount++;
         });
-        
-        console.log(`[loadPastMessages] Loaded ${loadedCount} past messages (since you joined)`);
     } catch (error) {
         console.error('[loadPastMessages] Error:', error);
     }
@@ -432,7 +486,6 @@ function testColorDistribution(numUsers) {
         const userId = `user${i}`;
         colors.add(getClientColor(userId));
     }
-    console.log(`Unique colors: ${colors.size} / ${numUsers}`);
 }
 
 // テスト実行
@@ -445,24 +498,413 @@ function logout() {
         if (ws) {
             ws.close();
         }
-        // localStorageから全てのデータを削除
-        const sessionId = localStorage.getItem('session_id');
-        const savedClientId = localStorage.getItem('client_id');
         
-        localStorage.removeItem('client_id');
-        localStorage.removeItem('session_id');
-        
-        // セッションパスワード削除
-        if (sessionId) {
-            localStorage.removeItem('session_password_' + sessionId);
-        }
-        
-        // ユーザーパスワード削除
-        if (sessionId && savedClientId) {
-            localStorage.removeItem('user_password_' + sessionId + '_' + savedClientId);
-        }
+        // すべてのストレージをクリア（実験の完全性を保つ）
+        localStorage.clear();
+        sessionStorage.clear();
         
         // ログインページへリダイレクト
         window.location.href = '/';
+    }
+}
+
+// 教示文を表示（条件に設定されている場合）
+function showInstructionIfNeeded() {
+    const instructionText = window.CHAT_CONFIG.instruction_text;
+    
+    if (!instructionText || instructionText.trim() === '') {
+        return;  // 教示文がない場合は何もしない
+    }
+    
+    // 教示文メッセージとして表示
+    const instructionMessage = {
+        type: 'instruction',
+        message: instructionText,
+        timestamp: new Date().toISOString()
+    };
+    
+    displayMessage(instructionMessage);
+}
+
+// タイムリミットを設定（条件に設定されている場合）
+function startTimeLimitIfNeeded() {
+    const timeLimitMinutes = window.CHAT_CONFIG.time_limit_minutes;
+    
+    if (!timeLimitMinutes || timeLimitMinutes <= 0) {
+        return;  // タイムリミットが設定されていない場合は何もしない
+    }
+    
+    const timeLimitMs = timeLimitMinutes * 60 * 1000;  // 分をミリ秒に変換
+    
+    // 指定時間後にセッションを終了
+    setTimeout(() => {
+        
+        // 終了メッセージを表示
+        const endMessage = {
+            type: 'system',
+            message: `⏱️ Time limit reached (${timeLimitMinutes} minutes). Thank you for participating!`,
+            timestamp: new Date().toISOString()
+        };
+        displayMessage(endMessage);
+        
+        // WebSocketを閉じる
+        if (ws) {
+            ws.close();
+        }
+        
+        // アンケートがある場合は表示、ない場合はログイン画面へ
+        const surveyQuestions = window.CHAT_CONFIG.survey_questions;
+        if (surveyQuestions && surveyQuestions.length > 0) {
+            // アンケートを表示
+            showSurvey();
+        } else {
+            // すべてのストレージをクリア
+            localStorage.clear();
+            sessionStorage.clear();
+            
+            // 3秒後にログイン画面へリダイレクト
+            setTimeout(() => {
+                alert(`Session ended. Time limit: ${timeLimitMinutes} minutes.`);
+                window.location.href = '/';
+            }, 3000);
+        }
+    }, timeLimitMs);
+}
+
+// アンケートを表示
+function showSurvey() {
+    const surveyQuestions = window.CHAT_CONFIG.survey_questions;
+    
+    if (!surveyQuestions || surveyQuestions.length === 0) {
+        // アンケートがない場合は何もしない
+        return;
+    }
+    
+    // チャット画面を非表示
+    document.getElementById('chatContainer').style.display = 'none';
+    
+    // アンケート画面を表示
+    const surveyContainer = document.getElementById('surveyContainer');
+    surveyContainer.style.display = 'flex';
+    
+    // タイトルと説明を設定
+    document.getElementById('surveyTitle').textContent = window.CHAT_CONFIG.survey_title || 'アンケート';
+    const descElement = document.getElementById('surveyDescription');
+    if (window.CHAT_CONFIG.survey_description) {
+        descElement.textContent = window.CHAT_CONFIG.survey_description;
+        descElement.style.display = 'block';
+    } else {
+        descElement.style.display = 'none';
+    }
+    
+    // 質問を生成
+    const questionsContainer = document.getElementById('surveyQuestions');
+    questionsContainer.innerHTML = '';
+    
+    surveyQuestions.forEach((question, index) => {
+        const questionDiv = document.createElement('div');
+        questionDiv.className = 'survey-question';
+        
+        // 質問テキスト
+        const questionLabel = document.createElement('label');
+        questionLabel.className = 'survey-question-label';
+        questionLabel.textContent = `${index + 1}. ${question.question_text}`;
+        if (question.required) {
+            const requiredSpan = document.createElement('span');
+            requiredSpan.className = 'required-mark';
+            requiredSpan.textContent = ' *';
+            questionLabel.appendChild(requiredSpan);
+        }
+        questionDiv.appendChild(questionLabel);
+        
+        // 質問タイプに応じた入力要素を生成
+        if (question.question_type === 'likert') {
+            // リッカート尺度
+            const scaleContainer = document.createElement('div');
+            scaleContainer.className = 'likert-scale';
+            
+            // ラベル行
+            if (question.scale_min_label || question.scale_max_label) {
+                const labelsDiv = document.createElement('div');
+                labelsDiv.className = 'likert-labels';
+                
+                const minLabel = document.createElement('span');
+                minLabel.className = 'likert-label-min';
+                minLabel.textContent = question.scale_min_label || '';
+                labelsDiv.appendChild(minLabel);
+                
+                const maxLabel = document.createElement('span');
+                maxLabel.className = 'likert-label-max';
+                maxLabel.textContent = question.scale_max_label || '';
+                labelsDiv.appendChild(maxLabel);
+                
+                scaleContainer.appendChild(labelsDiv);
+            }
+            
+            // スケール選択肢
+            const optionsDiv = document.createElement('div');
+            optionsDiv.className = 'likert-options';
+            
+            for (let i = question.scale_min; i <= question.scale_max; i++) {
+                const optionLabel = document.createElement('label');
+                optionLabel.className = 'likert-option';
+                
+                const radio = document.createElement('input');
+                radio.type = 'radio';
+                radio.name = question.question_id;
+                radio.value = i;
+                radio.required = question.required;
+                
+                const span = document.createElement('span');
+                span.textContent = i;
+                
+                optionLabel.appendChild(radio);
+                optionLabel.appendChild(span);
+                optionsDiv.appendChild(optionLabel);
+            }
+            
+            scaleContainer.appendChild(optionsDiv);
+            questionDiv.appendChild(scaleContainer);
+            
+        } else if (question.question_type === 'single_choice') {
+            // 単一選択
+            const choicesContainer = document.createElement('div');
+            choicesContainer.className = 'choice-options';
+            
+            question.choices.forEach((choice, choiceIndex) => {
+                const choiceLabel = document.createElement('label');
+                choiceLabel.className = 'choice-option';
+                
+                const radio = document.createElement('input');
+                radio.type = 'radio';
+                radio.name = question.question_id;
+                radio.value = choice;
+                radio.required = question.required;
+                
+                const span = document.createElement('span');
+                span.textContent = choice;
+                
+                choiceLabel.appendChild(radio);
+                choiceLabel.appendChild(span);
+                choicesContainer.appendChild(choiceLabel);
+            });
+            
+            questionDiv.appendChild(choicesContainer);
+            
+        } else if (question.question_type === 'multiple_choice') {
+            // 複数選択
+            const choicesContainer = document.createElement('div');
+            choicesContainer.className = 'choice-options';
+            
+            question.choices.forEach((choice, choiceIndex) => {
+                const choiceLabel = document.createElement('label');
+                choiceLabel.className = 'choice-option';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.name = question.question_id;
+                checkbox.value = choice;
+                if (question.required && choiceIndex === 0) {
+                    checkbox.required = true;  // 少なくとも1つ必須
+                }
+                
+                const span = document.createElement('span');
+                span.textContent = choice;
+                
+                choiceLabel.appendChild(checkbox);
+                choiceLabel.appendChild(span);
+                choicesContainer.appendChild(choiceLabel);
+            });
+            
+            questionDiv.appendChild(choicesContainer);
+            
+        } else if (question.question_type === 'text') {
+            // 自由記述
+            const textarea = document.createElement('textarea');
+            textarea.name = question.question_id;
+            textarea.className = 'survey-textarea';
+            textarea.required = question.required;
+            if (question.max_length) {
+                textarea.maxLength = question.max_length;
+            }
+            textarea.rows = 4;
+            questionDiv.appendChild(textarea);
+        }
+        
+        questionsContainer.appendChild(questionDiv);
+    });
+    
+    // フォーム送信イベント
+    document.getElementById('surveyForm').onsubmit = async (e) => {
+        e.preventDefault();
+        await submitSurvey();
+    };
+}
+
+// アンケート回答を送信
+async function submitSurvey() {
+    const surveyQuestions = window.CHAT_CONFIG.survey_questions;
+    const responses = [];
+    
+    // 各質問の回答を収集
+    for (const question of surveyQuestions) {
+        let answer = null;
+        
+        if (question.question_type === 'likert' || question.question_type === 'single_choice') {
+            // ラジオボタン
+            const selected = document.querySelector(`input[name="${question.question_id}"]:checked`);
+            if (selected) {
+                answer = question.question_type === 'likert' ? parseInt(selected.value) : selected.value;
+            }
+        } else if (question.question_type === 'multiple_choice') {
+            // チェックボックス（複数選択）
+            const checked = document.querySelectorAll(`input[name="${question.question_id}"]:checked`);
+            answer = Array.from(checked).map(cb => cb.value);
+        } else if (question.question_type === 'text') {
+            // テキストエリア
+            const textarea = document.querySelector(`textarea[name="${question.question_id}"]`);
+            answer = textarea ? textarea.value : null;
+        }
+        
+        responses.push({
+            question_id: question.question_id,
+            answer: answer
+        });
+    }
+    
+    // サーバーに送信
+    try {
+        const response = await fetch(`/api/sessions/${currentSessionId}/survey`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                client_id: clientId,
+                responses: responses
+            })
+        });
+        
+        if (response.ok) {
+            // 送信成功
+            document.getElementById('surveyForm').style.display = 'none';
+            document.getElementById('surveyThankYou').style.display = 'block';
+            
+            // すべてのストレージをクリア
+            localStorage.clear();
+            sessionStorage.clear();
+            
+            // 3秒後にログイン画面へリダイレクト
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 3000);
+        } else {
+            alert('アンケートの送信に失敗しました。もう一度お試しください。');
+        }
+    } catch (error) {
+        console.error('Survey submission error:', error);
+        alert('アンケートの送信中にエラーが発生しました。');
+    }
+}
+
+/**
+ * 🆕 実験フローを初期化
+ */
+async function initializeExperimentFlow() {
+    // 既に初期化済みの場合はスキップ
+    if (experimentFlowInitialized) {
+        console.log('[Chat.js] ExperimentFlow already initialized, skipping');
+        return;
+    }
+    
+    if (typeof showDebugInfo === 'function') showDebugInfo('[Chat.js] initializeExperimentFlow called');
+    console.log('[Chat.js] initializeExperimentFlow called');
+    console.log('[Chat.js] currentSessionId:', currentSessionId);
+    console.log('[Chat.js] clientId:', clientId);
+    
+    if (!currentSessionId || !clientId) {
+        if (typeof showDebugInfo === 'function') showDebugInfo('ERROR: missing sessionId or clientId');
+        console.error('[Flow] Cannot initialize: missing sessionId or clientId');
+        return;
+    }
+    
+    // フラグを設定（重複呼び出しを防ぐ）
+    experimentFlowInitialized = true;
+    
+    // ExperimentFlowインスタンスを作成
+    if (typeof showDebugInfo === 'function') showDebugInfo('Creating ExperimentFlow instance');
+    experimentFlow = new ExperimentFlow(currentSessionId, clientId);
+    console.log('[Chat.js] ExperimentFlow instance created');
+    
+    // 初期化（フロー情報を取得して最初のステップを表示）
+    const initialized = await experimentFlow.initialize();
+    if (typeof showDebugInfo === 'function') showDebugInfo(`Flow initialized: ${initialized}`);
+    console.log('[Chat.js] Flow initialized:', initialized);
+    
+    if (!initialized) {
+        console.log('[Flow] No flow configured - showing chat interface (legacy mode)');
+        if (typeof showDebugInfo === 'function') showDebugInfo('No flow - showing chat (legacy)');
+        // 実験フローがない場合はチャット画面を表示
+        const chatContainer = document.getElementById('chatContainer');
+        if (chatContainer) {
+            chatContainer.style.display = 'flex';
+            console.log('[Chat.js] Chat container shown (legacy mode)');
+        }
+    } else {
+        console.log('[Chat.js] Flow initialized successfully, flow should be visible');
+        if (typeof showDebugInfo === 'function') showDebugInfo('Flow should be visible now');
+    }
+}
+
+/**
+ * AIローディングスピナーを表示
+ */
+function showAILoadingSpinner() {
+    console.log('[Spinner] showAILoadingSpinner called');
+    
+    // 既存のスピナーがあれば削除
+    hideAILoadingSpinner();
+    
+    const messageArea = document.getElementById('messageArea');
+    if (!messageArea) {
+        console.error('[Spinner] messageArea not found');
+        return;
+    }
+    
+    // スピナーコンテナを作成（アイコンなし）
+    const spinnerWrapper = document.createElement('div');
+    spinnerWrapper.id = 'aiLoadingSpinner';
+    spinnerWrapper.className = 'ai-loading-spinner-wrapper';
+    
+    const spinnerContainer = document.createElement('div');
+    spinnerContainer.className = 'spinner-container';
+    
+    const spinner = document.createElement('div');
+    spinner.className = 'spinner';
+    
+    spinnerContainer.appendChild(spinner);
+    spinnerWrapper.appendChild(spinnerContainer);
+    
+    // メッセージエリアに追加
+    messageArea.appendChild(spinnerWrapper);
+    console.log('[Spinner] Spinner added to messageArea');
+    
+    // 最下部にスクロール
+    setTimeout(() => {
+        messageArea.scrollTop = messageArea.scrollHeight;
+    }, 50);
+}
+
+/**
+ * AIローディングスピナーを非表示
+ */
+function hideAILoadingSpinner() {
+    console.log('[Spinner] hideAILoadingSpinner called');
+    const spinner = document.getElementById('aiLoadingSpinner');
+    if (spinner) {
+        spinner.remove();
+        console.log('[Spinner] Spinner removed');
+    } else {
+        console.log('[Spinner] No spinner to remove');
     }
 } 

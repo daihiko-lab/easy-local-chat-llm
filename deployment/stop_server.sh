@@ -1,17 +1,16 @@
-#!/bin/zsh
-# サーバーを停止するスクリプト
+#!/usr/bin/env bash
+# Easy Local Chat - Stop Server Script
 
-# プロジェクトのルートディレクトリに移動
+# Move to project root
 cd "$(dirname "$0")/.."
 
-echo "サーバーを停止しています..."
+echo "Stopping server..."
 
-# uvicornプロセスを検索して停止
-pkill -f "uvicorn src.main:app"
-
-if [ $? -eq 0 ]; then
-    echo "✓ サーバーが停止されました"
+# Stop uvicorn process
+if pkill -f "uvicorn src.main:app" 2>/dev/null; then
+    echo "✓ Server stopped"
 else
-    echo "実行中のサーバーが見つかりませんでした"
+    echo "✗ No running server found"
+    exit 1
 fi
 

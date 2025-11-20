@@ -370,11 +370,6 @@
                     <label for="expResearcher">Researcher Name</label>
                     <input type="text" id="expResearcher" placeholder="Your name" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
                 </div>
-                <div class="form-group">
-                    <label for="expMaxSessions">Max Concurrent Sessions (leave empty for unlimited)</label>
-                    <input type="number" id="expMaxSessions" min="1" placeholder="e.g., 10" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
-                    <div style="font-size: 0.85em; color: #666; margin-top: 5px;">⏳ Limits how many participants can be in the experiment simultaneously. Others will wait in a queue.</div>
-                </div>
                 <button class="btn btn-primary" onclick="createNewExperiment()" style="width: 100%; margin-top: 10px;">✨ Create Experiment</button>
             </div>
             
@@ -481,9 +476,6 @@
                 const conditions = conditionsData.conditions || [];
                 const sessions = sessionsData.sessions || [];
                 
-                // 実験用条件の数を数える
-                const experimentConditions = conditions.filter(c => c.is_experiment);
-                
                 // Active と Completed に分ける
                 const activeExperiments = experiments.filter(e => ['planning', 'active', 'paused'].includes(e.status));
                 const completedExperiments = experiments.filter(e => e.status === 'completed');
@@ -499,27 +491,20 @@
                     activeContainer.innerHTML = `
                         <div style="text-align: center; padding: 40px; color: #999;">
                             <p style="font-size: 1.1em; margin-bottom: 10px;">No active experiments.</p>
-                            ${experimentConditions.length === 0 ? 
-                                `<p style="font-size: 0.9em; color: #f57c00; background: #fff3e0; padding: 12px; border-radius: 6px; display: inline-block;">
-                                    ⚠️ Create experiment conditions first!<br>
-                                    Go to experiment detail page after creating.
-                                </p>` :
-                                `<p style="font-size: 0.9em;">
-                                    ✅ You have ${experimentConditions.length} condition(s) ready.<br>
-                                    Click "Create New Experiment" above to start.
-                                </p>`
-                            }
+                            <p style="font-size: 0.9em;">
+                                Click "Create New Experiment" above to start.
+                            </p>
                         </div>
                     `;
                 } else {
-                    activeContainer.innerHTML = activeExperiments.map(exp => renderExperimentCard(exp, experimentConditions, sessions)).join('');
+                    activeContainer.innerHTML = activeExperiments.map(exp => renderExperimentCard(exp, sessions)).join('');
                 }
                 
                 // Completed Experiments
                 if (completedExperiments.length === 0) {
                     completedContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">No completed experiments</div>';
                 } else {
-                    completedContainer.innerHTML = completedExperiments.map(exp => renderExperimentCard(exp, experimentConditions, sessions)).join('');
+                    completedContainer.innerHTML = completedExperiments.map(exp => renderExperimentCard(exp, sessions)).join('');
                 }
                 
             } catch (error) {
@@ -528,7 +513,7 @@
             }
         }
         
-        function renderExperimentCard(exp, experimentConditions, allSessions) {
+        function renderExperimentCard(exp, allSessions) {
             const statusColors = {
                 'planning': '#95a5a6',
                 'active': '#27ae60',
@@ -542,7 +527,8 @@
                 'completed': 'Completed'
             };
             
-            const conditionsCount = exp.status === 'active' ? experimentConditions.length : 0;
+            // 実験フローのステップ数をカウント
+            const flowStepsCount = (exp.experiment_flow && exp.experiment_flow.length) || 0;
             
             // この実験に属するセッションを取得
             const experimentSessions = allSessions.filter(s => s.experiment_id === exp.experiment_id);
@@ -558,16 +544,16 @@
                                 <span style="background: ${statusColors[exp.status]}; color: white; padding: 3px 10px; border-radius: 4px; font-size: 0.7em; margin-left: 10px;">
                                     ${statusLabels[exp.status]}
                                 </span>
-                                ${conditionsCount > 0 ? `
-                                <span style="background: #ff9800; color: white; padding: 3px 10px; border-radius: 4px; font-size: 0.7em; margin-left: 5px;">
-                                    📋 ${conditionsCount} Conditions
+                                ${flowStepsCount > 0 ? `
+                                <span style="background: #2196f3; color: white; padding: 3px 10px; border-radius: 4px; font-size: 0.7em; margin-left: 5px;">
+                                    🔄 ${flowStepsCount} Steps
                                 </span>` : ''}
                             </h3>
                             ${exp.description ? `<p style="margin: 0 0 8px 0; color: #666; font-size: 0.95em;">${exp.description}</p>` : ''}
                             ${exp.researcher ? `<p style="margin: 0; color: #999; font-size: 0.85em;">👤 Researcher: ${exp.researcher}</p>` : ''}
-                            ${exp.status === 'active' && conditionsCount === 0 ? `
+                            ${exp.status === 'active' && (!exp.experiment_flow || exp.experiment_flow.length === 0) ? `
                             <div style="background: #fff3cd; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 0.85em; color: #856404;">
-                                ⚠️ No experiment conditions! Create conditions by clicking "🔧 Manage"
+                                ⚠️ No experiment flow defined! Click "🔧 Manage" to edit the flow
                             </div>` : ''}
                         </div>
                         <div style="display: flex; gap: 8px; flex-shrink: 0;">
@@ -586,17 +572,6 @@
                             <div style="font-size: 1.3em; font-weight: 600; color: #333;">${experimentSessions.length}</div>
                         </div>
                         <div>
-                            <div style="font-size: 0.8em; color: #999;">Concurrent Limit</div>
-                            <div style="font-size: 1.3em; font-weight: 600; color: ${exp.max_concurrent_sessions ? '#e67e22' : '#999'};">
-                                ${exp.max_concurrent_sessions || '∞'}
-                            </div>
-                            ${exp.status === 'active' && exp.max_concurrent_sessions ? `
-                                <div style="font-size: 0.75em; color: #666; margin-top: 2px;">
-                                    ${activeSessions.length}/${exp.max_concurrent_sessions} active
-                                </div>
-                            ` : ''}
-                        </div>
-                        <div>
                             <div style="font-size: 0.8em; color: #999;">Created</div>
                             <div style="font-size: 0.9em; color: #666;">${new Date(exp.created_at).toLocaleDateString()}</div>
                         </div>
@@ -610,39 +585,44 @@
                     
                     ${experimentSessions.length > 0 ? `
                     <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
-                        <h4 style="margin: 0 0 10px 0; font-size: 1em; color: #555;">Sessions (${experimentSessions.length})</h4>
-                        ${activeSessions.length > 0 ? `
-                        <div style="margin-bottom: 10px;">
-                            <div style="font-size: 0.9em; color: #27ae60; font-weight: 600; margin-bottom: 5px;">● Active (${activeSessions.length})</div>
-                            ${activeSessions.map(s => `
-                                <div style="padding: 8px; margin-bottom: 5px; background: white; border-radius: 4px; font-size: 0.85em; display: flex; justify-content: space-between; align-items: center;">
-                                    <div>
-                                        <span style="font-family: monospace; color: #333;">${s.session_id.substring(0, 12)}...</span>
-                                        ${s.experiment_group ? `<span style="color: #666; margin-left: 8px;">| ${s.experiment_group}</span>` : ''}
-                                        <span style="color: #999; margin-left: 8px;">| ${s.participants.length} participant(s)</span>
+                        <h4 style="margin: 0 0 10px 0; font-size: 1em; color: #555; cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center;" onclick="toggleExperimentSessions('${exp.experiment_id}')">
+                            <span>
+                                <span id="sessions-toggle-${exp.experiment_id}">▼</span> Sessions (${experimentSessions.length})
+                                <span style="color: #999; font-size: 0.9em; margin-left: 10px;">Active: ${activeSessions.length} | Ended: ${endedSessions.length}</span>
+                            </span>
+                        </h4>
+                        <div id="sessions-content-${exp.experiment_id}" style="display: block;">
+                            ${activeSessions.length > 0 ? `
+                            <div style="margin-bottom: 10px;">
+                                <div style="font-size: 0.9em; color: #27ae60; font-weight: 600; margin-bottom: 5px;">● Active (${activeSessions.length})</div>
+                                ${activeSessions.map(s => `
+                                    <div style="padding: 8px; margin-bottom: 5px; background: white; border-radius: 4px; font-size: 0.85em; display: flex; justify-content: space-between; align-items: center;">
+                                        <div>
+                                            <span style="font-family: monospace; color: #333;">${s.session_id.substring(0, 12)}...</span>
+                                            <span style="color: #999; margin-left: 8px;">| ${s.participants.length} participant(s)</span>
+                                        </div>
+                                        <button class="btn btn-small" onclick="viewSession('${s.session_id}')" style="background: #3498db; color: white; font-size: 0.8em; padding: 4px 8px;">View</button>
                                     </div>
-                                    <button class="btn btn-small" onclick="viewSession('${s.session_id}')" style="background: #3498db; color: white; font-size: 0.8em; padding: 4px 8px;">View</button>
-                                </div>
-                            `).join('')}
-                        </div>` : ''}
-                        ${endedSessions.length > 0 ? `
-                        <div>
-                            <div style="font-size: 0.9em; color: #999; font-weight: 600; margin-bottom: 5px;">● Ended (${endedSessions.length})</div>
-                            ${endedSessions.slice(0, 3).map(s => `
-                                <div style="padding: 8px; margin-bottom: 5px; background: white; border-radius: 4px; font-size: 0.85em; display: flex; justify-content: space-between; align-items: center;">
-                                    <div>
-                                        <span style="font-family: monospace; color: #666;">${s.session_id.substring(0, 12)}...</span>
-                                        ${s.experiment_group ? `<span style="color: #999; margin-left: 8px;">| ${s.experiment_group}</span>` : ''}
-                                        <span style="color: #999; margin-left: 8px;">| ${s.total_messages} msg(s)</span>
+                                `).join('')}
+                            </div>` : ''}
+                            ${endedSessions.length > 0 ? `
+                            <div>
+                                <div style="font-size: 0.9em; color: #999; font-weight: 600; margin-bottom: 5px;">● Ended (${endedSessions.length})</div>
+                                ${endedSessions.slice(0, 3).map(s => `
+                                    <div style="padding: 8px; margin-bottom: 5px; background: white; border-radius: 4px; font-size: 0.85em; display: flex; justify-content: space-between; align-items: center;">
+                                        <div>
+                                            <span style="font-family: monospace; color: #666;">${s.session_id.substring(0, 12)}...</span>
+                                            <span style="color: #999; margin-left: 8px;">| ${s.total_messages} msg(s)</span>
+                                        </div>
+                                        <div style="display: flex; gap: 4px;">
+                                            <button class="btn btn-small" onclick="exportSession('${s.session_id}', 'json')" style="font-size: 0.8em; padding: 4px 8px;">JSON</button>
+                                            <button class="btn btn-small" onclick="exportSession('${s.session_id}', 'csv')" style="font-size: 0.8em; padding: 4px 8px;">CSV</button>
+                                        </div>
                                     </div>
-                                    <div style="display: flex; gap: 4px;">
-                                        <button class="btn btn-small" onclick="exportSession('${s.session_id}', 'json')" style="font-size: 0.8em; padding: 4px 8px;">JSON</button>
-                                        <button class="btn btn-small" onclick="exportSession('${s.session_id}', 'csv')" style="font-size: 0.8em; padding: 4px 8px;">CSV</button>
-                                    </div>
-                                </div>
-                            `).join('')}
-                            ${endedSessions.length > 3 ? `<div style="text-align: center; color: #999; font-size: 0.85em; margin-top: 5px;">... and ${endedSessions.length - 3} more (view in "🔧 Manage")</div>` : ''}
-                        </div>` : ''}
+                                `).join('')}
+                                ${endedSessions.length > 3 ? `<div style="text-align: center; color: #999; font-size: 0.85em; margin-top: 5px;">... and ${endedSessions.length - 3} more (view in "🔧 Manage")</div>` : ''}
+                            </div>` : ''}
+                        </div>
                     </div>` : ''}
                 </div>
             `;
@@ -661,12 +641,23 @@
             }
         }
         
+        function toggleExperimentSessions(experimentId) {
+            const content = document.getElementById(`sessions-content-${experimentId}`);
+            const toggle = document.getElementById(`sessions-toggle-${experimentId}`);
+            
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                toggle.textContent = '▶';
+            }
+        }
+        
         async function createNewExperiment() {
             const name = document.getElementById('expName').value.trim();
             const description = document.getElementById('expDescription').value.trim();
             const researcher = document.getElementById('expResearcher').value.trim();
-            const maxSessionsInput = document.getElementById('expMaxSessions').value.trim();
-            const maxSessions = maxSessionsInput ? parseInt(maxSessionsInput) : null;
             
             if (!name) {
                 alert('Please enter experiment name');
@@ -680,8 +671,7 @@
                     body: JSON.stringify({ 
                         name, 
                         description, 
-                        researcher,
-                        max_concurrent_sessions: maxSessions
+                        researcher
                     })
                 });
                 
@@ -691,7 +681,6 @@
                 document.getElementById('expName').value = '';
                 document.getElementById('expDescription').value = '';
                 document.getElementById('expResearcher').value = '';
-                document.getElementById('expMaxSessions').value = '';
                 loadExperiments();
                 
             } catch (error) {

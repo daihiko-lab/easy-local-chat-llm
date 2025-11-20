@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Chat Room</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
     <!-- Highlight.js CSS -->
@@ -14,7 +14,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="chat-container">
+        <div class="chat-container" id="chatContainer">
             <div class="chat-header">
                 <h1>Chat Room</h1>
                 <div class="connection-info">
@@ -25,7 +25,7 @@
                     <div id="client-id" class="client-id">Client ID: N/A</div>
                     <div id="session-info" class="session-info">
                         <span class="session-label">Session:</span> 
-                        <span id="session-id">{{ session_id }}</span>
+                        <span id="session-id">{% if session_id %}{{ session_id }}{% else %}Connecting...{% endif %}</span>
                     </div>
                     <button id="logout-btn" class="logout-btn" onclick="logout()">Logout</button>
                 </div>
@@ -36,14 +36,43 @@
                 <button onclick="sendMessage()">Send</button>
             </div>
         </div>
+        
+        <!-- アンケート画面（初期は非表示） -->
+        <div class="survey-container" id="surveyContainer" style="display: none;">
+            <div class="survey-content">
+                <h2 id="surveyTitle">アンケート</h2>
+                <p id="surveyDescription" class="survey-description"></p>
+                
+                <form id="surveyForm">
+                    <div id="surveyQuestions"></div>
+                    
+                    <div class="survey-actions">
+                        <button type="submit" class="survey-submit-btn">送信</button>
+                    </div>
+                </form>
+                
+                <div id="surveyThankYou" class="survey-thank-you" style="display: none;">
+                    <h3>ご回答ありがとうございました</h3>
+                    <p>まもなくログイン画面に戻ります...</p>
+                </div>
+            </div>
+        </div>
     </div>
     <script>
+        // デバッグ関数（何もしない）
+        window.showDebugInfo = function(msg) {
+            console.log(msg);
+        };
+        
         // テンプレートからパラメータを埋め込む
         window.CHAT_CONFIG = {
+            token: "{{ token }}",
             client_id: "{{ client_id }}",
-            session_id: "{{ session_id }}"
+            session_id: "{{ session_id if session_id else '' }}",
+            experiment_id: "{{ experiment.experiment_id if experiment else '' }}"
         };
     </script>
-    <script src="{{ url_for('static', path='/js/chat.js') }}"></script>
+    <script src="{{ url_for('static', path='/js/experiment_flow.js') }}?v=20251119_1620"></script>
+    <script src="{{ url_for('static', path='/js/chat.js') }}?v=20251119_1620"></script>
 </body>
 </html> 

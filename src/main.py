@@ -10,12 +10,14 @@ import os
 import hashlib
 import secrets
 import uuid
+import asyncio
+import socket
 from datetime import datetime
 from pathlib import Path
 
-from .models.session import Session
+from .models.session import Session, SurveyResponse
 from .models.message import Message
-from .models.condition import Condition
+from .models.condition import Condition, SurveyQuestion
 from .models.experiment_group import ExperimentGroup
 from .managers.session_manager import SessionManager
 from .managers.message_store import MessageStore
@@ -27,11 +29,44 @@ from .managers.experiment_manager import ExperimentManager
 def generate_random_color():
     return f'#{random.randint(0, 0xFFFFFF):06x}'
 
+# ログ表示用ユーティリティ
+def print_section_header(title: str):
+    """セクションヘッダーを表示"""
+    print(f"\n{'='*60}")
+    print(f"  {title}")
+    print(f"{'='*60}")
+
+def print_info_box(title: str, items: dict):
+    """情報ボックスを表示"""
+    print(f"\n┌─ {title} " + "─" * (55 - len(title)))
+    for key, value in items.items():
+        print(f"│ {key:20s}: {value}")
+    print(f"└" + "─" * 58)
+
+def print_progress(current: int, total: int, step_info: str):
+    """進捗情報を表示"""
+    bar_length = 30
+    filled = int(bar_length * current / total)
+    bar = "█" * filled + "░" * (bar_length - filled)
+    percentage = int(100 * current / total)
+    print(f"\n[Progress] {bar} {percentage}% ({current}/{total})")
+    print(f"           Step: {step_info}")
+
 app = FastAPI()
 
 # 静的ファイルとテンプレートの設定
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
 templates = Jinja2Templates(directory="src/templates")
+
+# ヘルスチェック（デバッグ用）
+@app.get("/api/health")
+async def health_check():
+    """HTTPリクエストが到達しているか確認するためのエンドポイント"""
+    return {
+        "status": "ok",
+        "message": "Server is running",
+        "timestamp": datetime.now().isoformat()
+    }
 
 # 接続中のクライアントを保持する辞書
 # key: 接続ID（ユニーク）, value: WebSocket接続
@@ -44,14 +79,23 @@ connection_to_base_name: Dict[str, str] = {} # 接続ID→ベース名のマッ�
 # 実験管理のインスタンス（最初に初期化）
 experiment_manager = ExperimentManager()
 
-# 現在のデータディレクトリを取得
-current_data_dir = experiment_manager.get_current_data_dir()
+# データ管理のインスタンス（動的ディレクトリ参照）
+# 実験がある場合は自動的にそのディレクトリを使用
+base_data_dir = Path("data")
 
-# データ管理のインスタンス（タイムスタンプフォルダを使用）
-session_manager = SessionManager(data_dir=str(current_data_dir / "sessions"))
-message_store = MessageStore(data_dir=str(current_data_dir / "messages"))
+session_manager = SessionManager(
+    data_dir=str(base_data_dir / "sessions"),
+    experiment_manager=experiment_manager  # 動的ディレクトリ参照用
+)
+message_store = MessageStore(
+    data_dir=str(base_data_dir / "messages"),
+    experiment_manager=experiment_manager  # 動的ディレクトリ参照用
+)
 data_exporter = DataExporter()
-condition_manager = ConditionManager(condition_file=str(current_data_dir / "conditions" / "conditions.json"))
+condition_manager = ConditionManager(
+    condition_file=str(base_data_dir / "conditions" / "conditions.json"),
+    experiment_manager=experiment_manager  # 動的ディレクトリ参照用
+)
 
 # ボット管理のインスタンス（モデルは各セッション作成時に条件から設定）
 bot_manager = BotManager(bot_client_id="bot")
@@ -59,6 +103,10 @@ bot_manager = BotManager(bot_client_id="bot")
 # 管理者認証用
 ADMIN_CREDENTIALS_FILE = "data/admin_credentials.json"
 admin_tokens: Dict[str, bool] = {}  # トークン: 認証済みフラグ
+
+# セッショントークン管理（ユニークなURL生成用）
+# key: トークン, value: {"client_id": str, "condition_id": str, "created_at": str}
+session_tokens: Dict[str, dict] = {}
 
 def get_admin_credentials() -> Optional[dict]:
     """管理者認証情報を取得"""
@@ -96,23 +144,55 @@ def generate_admin_token() -> str:
 def verify_admin_token(token: Optional[str]) -> bool:
     """管理者トークンを検証"""
     if not token:
+        print(f"[Auth] ❌ No token")
         return False
-    return admin_tokens.get(token, False)
+    
+    is_valid = admin_tokens.get(token, False)
+    print(f"[Auth] {'✅' if is_valid else '❌'} {token[:12]}")
+    return is_valid
 
 # アプリケーション起動時の処理
+async def cleanup_empty_sessions():
+    """空のセッション（参加者0）を定期的にクリーンアップ"""
+    while True:
+        await asyncio.sleep(60)  # 1分ごとにチェック
+        
+        try:
+            sessions = session_manager.get_active_sessions()
+            for session in sessions:
+                # 作成から30秒以上経過 & 参加者が0
+                idle_seconds = session.get_idle_seconds()
+                if idle_seconds > 30 and len(session.participants) == 0:
+                    print(f"[Cleanup] 🧹 Ending empty session: {session.session_id} (idle for {idle_seconds:.0f}s)")
+                    session_manager.end_session(session.session_id)
+                    
+                    # ボット履歴もクリア
+                    if session.session_id in bot_manager.conversation_history:
+                        bot_manager.clear_history(session.session_id)
+        except Exception as e:
+            print(f"[Cleanup] Error during cleanup: {e}")
+
 @app.on_event("startup")
 async def startup_event():
-    global session_manager, bot_manager, experiment_manager, current_data_dir
+    global session_manager, bot_manager, experiment_manager
     
     # 起動情報を表示
     print("\n" + "="*60)
     print("APPLICATION STARTUP")
     print("="*60)
-    print(f"📁 Data Directory: {current_data_dir}")
-    print(f"   ├─ Experiments: {current_data_dir / 'experiments'}")
-    print(f"   ├─ Conditions: {current_data_dir / 'conditions'}")
-    print(f"   ├─ Sessions: {current_data_dir / 'sessions'}")
-    print(f"   └─ Messages: {current_data_dir / 'messages'}")
+    
+    # アクティブな実験があればそのディレクトリを表示
+    active_exp = experiment_manager.get_active_experiment()
+    if active_exp:
+        data_dir = Path(active_exp.data_directory)
+        print(f"📁 Active Experiment Data Directory: {data_dir.name}")
+        print(f"   ├─ Experiments: {data_dir / 'experiments'}")
+        print(f"   ├─ Conditions: {data_dir / 'conditions'}")
+        print(f"   ├─ Sessions: {data_dir / 'sessions'}")
+        print(f"   └─ Messages: {data_dir / 'messages'}")
+    else:
+        print(f"📁 Base Data Directory: data/")
+        print(f"   ⚠️  No active experiment. Please create one from /admin")
     print("="*60 + "\n")
     
     # Ollamaサービスの可用性をチェック
@@ -121,6 +201,7 @@ async def startup_event():
     print("="*60)
     try:
         import ollama
+        ollama_client = ollama
         models = ollama.list()
         available_models = [m['name'] for m in models.get('models', [])]
         if available_models:
@@ -189,21 +270,46 @@ async def startup_event():
     print("\n" + "="*60)
     print("🌐 ACCESS URLS")
     print("="*60)
-    print(f"Root:         http://localhost:8000/")
-    print(f"Admin Panel:  http://localhost:8000/admin")
-    print(f"User Login:   http://localhost:8000/login")
+    
+    # ローカルIPアドレスを取得
+    import socket
+    local_ip = None
+    try:
+        # ダミー接続でローカルIPを取得（実際には接続しない）
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        # IPアドレス取得に失敗した場合
+        try:
+            local_ip = socket.gethostbyname(socket.gethostname())
+        except Exception:
+            local_ip = None
+    
+    # localhost URL
+    print(f"📍 Local Access (this computer):")
+    print(f"   Root:         http://localhost:8000/")
+    print(f"   Admin Panel:  http://localhost:8000/admin")
+    print(f"   User Login:   http://localhost:8000/login")
+    
+    # ネットワークIP URL
+    if local_ip and local_ip != "127.0.0.1":
+        print(f"\n📡 Network Access (other devices on same network):")
+        print(f"   Root:         http://{local_ip}:8000/")
+        print(f"   Admin Panel:  http://{local_ip}:8000/admin")
+        print(f"   User Login:   http://{local_ip}:8000/login")
+        print(f"\n💡 Share the Login Page URL with participants!")
+    
     print("="*60 + "\n")
+    
+    # バックグラウンドタスクを起動
+    asyncio.create_task(cleanup_empty_sessions())
+    print("🧹 Background cleanup task started (checks every 60 seconds)\n")
 
 @app.get("/")
 async def get(request: Request):
-    # アクティブなセッションがあるかチェック
-    active_sessions = session_manager.get_active_sessions()
-    
-    if not active_sessions:
-        # アクティブなセッションがない場合は管理画面にリダイレクト
-        return RedirectResponse(url="/admin", status_code=302)
-    
-    # ログイン画面にリダイレクト
+    """ルートは常にログイン画面へリダイレクト"""
     return RedirectResponse(url="/login", status_code=302)
 
 @app.get("/login")
@@ -213,47 +319,114 @@ async def login_page(request: Request):
         "request": request
     })
 
+def get_local_ip():
+    """サーバーのローカルIPアドレスを取得"""
+    try:
+        # ダミーのUDP接続でローカルIPを取得
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception:
+        return "127.0.0.1"
+
 @app.get("/api/connection/status")
 async def get_connection_status():
-    """現在の接続状況を取得（実験の同時セッション数制限も考慮）"""
-    # 管理者ビューワー以外の接続数をカウント
-    non_admin_connections = [
-        cid for cid in active_connections.keys() 
-        if not cid.startswith("admin_viewer_")
-    ]
-    
-    # アクティブな実験の同時セッション数制限をチェック
+    """現在の接続状況を取得"""
+    # アクティブな実験の存在をチェック
     active_exp = experiment_manager.get_active_experiment()
-    can_join = True
-    reason = ""
-    waiting_info = None
     
-    if active_exp:
-        can_create, error_msg = experiment_manager.can_create_session(
-            active_exp.experiment_id, 
-            session_manager
+    if not active_exp:
+        # アクティブな実験がない場合
+        return JSONResponse(content={
+            "is_available": False,
+            "reason": "No active experiment available. Please contact the administrator."
+        })
+    
+    # 実験がある場合は常にログイン可能
+    return JSONResponse(content={
+        "is_available": True,
+        "reason": ""
+    })
+
+@app.get("/api/server/ip")
+async def get_server_ip():
+    """サーバーのIPアドレスを取得"""
+    local_ip = get_local_ip()
+    return JSONResponse(content={
+        "local_ip": local_ip,
+        "port": 8000
+    })
+
+@app.post("/api/login")
+async def login(participant_code: str = Form(...), participant_password: str = Form(...)):
+    """ログイン処理：参加者コードとパスワードを検証してセッショントークンを生成"""
+    # アクティブな実験の存在をチェック
+    active_exp = experiment_manager.get_active_experiment()
+    if not active_exp:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "No active experiment available"}
         )
-        if not can_create:
-            can_join = False
-            reason = error_msg
-            # 待機情報を追加
-            if active_exp.max_concurrent_sessions:
-                active_count = experiment_manager.get_active_session_count(
-                    active_exp.experiment_id, 
-                    session_manager
-                )
-                waiting_info = {
-                    "current_sessions": active_count,
-                    "max_sessions": active_exp.max_concurrent_sessions,
-                    "experiment_name": active_exp.name
-                }
+    
+    # 🆕 参加者コードを検証
+    participant_code = participant_code.lower().strip()
+    participant_password = participant_password.lower().strip()
+    
+    if not active_exp.is_code_valid(participant_code):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid participant code"}
+        )
+    
+    # 🆕 パスワードを検証
+    if not active_exp.verify_code_password(participant_code, participant_password):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid password"}
+        )
+    
+    code_status = active_exp.get_code_status(participant_code)
+    
+    if code_status == "completed":
+        return JSONResponse(
+            status_code=400,
+            content={"error": "This experiment has already been completed with this code"}
+        )
+    
+    if code_status == "used":
+        # 🆕 使用中のコードはブロック（再接続禁止）
+        return JSONResponse(
+            status_code=400,
+            content={"error": "This participant code has already been used. Please contact the researcher."}
+        )
+    
+    # unused の場合のみ新規セッションを作成
+    
+    # client_idを生成（participant_codeベース）
+    client_id = f"participant_{participant_code}"
+    
+    # ユニークなトークンを生成
+    token = secrets.token_urlsafe(32)
+    
+    # トークン情報を保存（条件はフローで動的に決定される）
+    session_tokens[token] = {
+        "client_id": client_id,
+        "participant_code": participant_code,
+        "experiment_id": active_exp.experiment_id,
+        "created_at": datetime.now().isoformat()
+    }
+    
+    print(f"[Login] 🎫 Token generated for '{participant_code}':")
+    print(f"   Token: {token[:16]}...")
+    print(f"   Client ID: {client_id}")
+    print(f"   Experiment: {active_exp.name}")
     
     return JSONResponse(content={
-        "active_users": len(non_admin_connections),
-        "is_available": can_join,
-        "max_users": 1,
-        "reason": reason,
-        "waiting_info": waiting_info
+        "token": token,
+        "client_id": client_id,
+        "participant_code": participant_code
     })
 
 @app.get("/viewer")
@@ -274,89 +447,37 @@ async def viewer(request: Request, session_id: str, admin_token: Optional[str] =
     })
 
 @app.get("/chat")
-async def chat(request: Request, client_id: str, session_id: str = None, 
-               session_password: str = None, user_password: str = None, auto_create: bool = False):
-    # auto_createフラグがある場合、テンプレートから新しいセッションを作成
-    if auto_create:
-        try:
-            # アクティブな実験の同時セッション数制限をチェック
-            active_exp = experiment_manager.get_active_experiment()
-            if active_exp:
-                can_create, error_msg = experiment_manager.can_create_session(
-                    active_exp.experiment_id, 
-                    session_manager
-                )
-                if not can_create:
-                    # 制限に達している場合はログインページにリダイレクト
-                    print(f"[Session] Cannot create session: {error_msg}")
-                    return RedirectResponse(url="/login", status_code=302)
-            
-            # 常に実験用条件からランダムに選択
-            session, condition = condition_manager.create_session_from_condition(
-                session_manager,
-                experiment_manager=experiment_manager,  # 実験マネージャーを渡す
-                use_random_experiment=True  # 常に実験モード
-            )
-            session_id = session.session_id
-            
-            # 条件のボット設定を適用（セッションごとに独立）
-            bot_manager.set_model(session_id, condition.bot_model)
-            if condition.system_prompt:  # システムプロンプトが設定されている場合のみ適用
-                bot_manager.set_system_prompt(session_id, condition.system_prompt)
-            
-            # ログメッセージ
-            if condition.is_experiment:
-                print(f"[Experiment] New session created | Condition: {condition.experiment_group} | Session: {session_id}")
-            else:
-                print(f"[Session] New session created from condition: {session_id}")
-        except Exception as e:
-            print(f"[Auto-Create] Error creating session: {e}")
-            # エラー時は通常フローに戻る
-            auto_create = False
+async def chat(request: Request, token: str):
+    """チャット画面を表示（トークンベース）"""
     
-    # session_idが指定されていない場合は、現在のセッションを使用
-    if not session_id:
-        current_session = session_manager.get_current_session()
-        session_id = current_session.session_id if current_session else "no_session"
-        session = current_session
-    else:
-        # 指定されたセッションが存在するか確認
-        session = session_manager.load_session(session_id)
-        if not session or session.status != "active":
-            # セッションが存在しないか終了している場合は、現在のセッションを使用
-            current_session = session_manager.get_current_session()
-            session_id = current_session.session_id if current_session else "no_session"
-            session = current_session
+    # トークンの検証
+    if token not in session_tokens:
+        print(f"[Chat] ❌ Invalid token")
+        return RedirectResponse(url="/login", status_code=302)
     
-    # セッション全体のパスワード保護チェック
-    if session and session.password_protected:
-        if not session_password or not session.verify_password(session_password):
-            return templates.TemplateResponse("login.html", {
-                "request": request,
-                "error": "セッションパスワードが正しくありません"
-            })
+    token_data = session_tokens[token]
+    client_id = token_data["client_id"]
+    participant_code = token_data.get("participant_code", "N/A")
+    experiment_id = token_data.get("experiment_id")
     
-    # ユーザーIDのパスワード保護チェック
-    if session:
-        # 既存の保護されたIDの場合
-        if session.has_user_password(client_id):
-            if not user_password or not session.verify_user_password(client_id, user_password):
-                return templates.TemplateResponse("login.html", {
-                    "request": request,
-                    "error": f"ユーザーID '{client_id}' のパスワードが正しくありません"
-                })
-        # セッションがユーザーパスワード必須の場合、新規ユーザーもパスワードが必要
-        elif session.require_user_password and not session.has_user_password(client_id):
-            if not user_password:
-                return templates.TemplateResponse("login.html", {
-                    "request": request,
-                    "error": "このセッションではユーザーパスワードが必須です"
-                })
+    # アクティブな実験の存在をチェック
+    active_exp = experiment_manager.get_active_experiment()
+    if not active_exp:
+        print(f"[Chat] No active experiment found")
+        return RedirectResponse(url="/login", status_code=302)
+    
+    print(f"[Chat] 🎫 User accessing chat with token:")
+    print(f"   Client ID: {client_id}")
+    print(f"   Participant Code: {participant_code}")
+    print(f"   Experiment: {active_exp.name}")
+    print(f"   (Session will be created on WebSocket connection)")
     
     return templates.TemplateResponse("chat.html", {
         "request": request, 
+        "token": token,
         "client_id": client_id,
-        "session_id": session_id
+        "session_id": None,  # 新規セッション（WebSocketで作成）
+        "experiment": active_exp  # 実験情報を渡す
     })
 
 @app.websocket("/ws/viewer")
@@ -379,7 +500,7 @@ async def websocket_viewer_endpoint(websocket: WebSocket, session_id: str):
     active_connections[viewer_id] = websocket
     client_sessions[viewer_id] = session_id
     
-    print(f"[Viewer] Admin connected to session: {session_id}")
+    print(f"[Viewer] → {session_id}")
     
     try:
         # 管理者はメッセージを受信するだけ（送信しない）
@@ -393,94 +514,129 @@ async def websocket_viewer_endpoint(websocket: WebSocket, session_id: str):
             del active_connections[viewer_id]
         if viewer_id in client_sessions:
             del client_sessions[viewer_id]
-        print(f"[Viewer] Admin disconnected from session: {session_id}")
+        print(f"[Viewer] ← {session_id}")
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocketエンドポイント（トークンベース認証）"""
     await websocket.accept()
     client_id = None
-    
-    # session_idが指定されている場合は、そのセッションを使用
-    if session_id:
-        session = session_manager.load_session(session_id)
-        if not session or session.status != "active":
-            await websocket.close(code=1000, reason="Invalid or inactive session")
-            return
-    else:
-        # 指定されていない場合は現在のセッションを使用
-        current_session = session_manager.get_current_session()
-        if not current_session:
-            await websocket.close(code=1000, reason="No active session")
-            return
-        session_id = current_session.session_id
+    session_id = None
+    session_created_now = False
     
     try:
         while True:
             data = await websocket.receive_json()
             if not client_id:
-                # クライアントIDがまだ設定されていない場合、初期メッセージから取得
-                if "client_id" in data:
-                    base_client_id = data["client_id"]
-                    
-                    # 管理者ビューワー以外の接続数をチェック（1人制限）
-                    non_admin_connections = [
-                        cid for cid in active_connections.keys() 
-                        if not cid.startswith("admin_viewer_")
-                    ]
-                    
-                    if len(non_admin_connections) >= 1:
-                        # 既に1人接続している場合は拒否
-                        print(f"Connection limit reached. User {base_client_id} was rejected.")
-                        await websocket.close(code=1000, reason="Only one user allowed")
-                        return
-                    
-                    # 背後でユニークな接続IDを生成（UUID使用）
-                    # 既存のIDと衝突しないことを保証
-                    while True:
-                        connection_id = uuid.uuid4().hex
-                        if connection_id not in active_connections:
-                            break
-                    
-                    # 表示名は元のクライアントIDをそのまま使用（番号を付けない）
-                    display_name = base_client_id
-                    
-                    client_id = connection_id  # 内部的にはユニークな接続IDを使用
-                    connection_to_display_name[connection_id] = display_name
-                    connection_to_base_name[connection_id] = base_client_id
-                    
-                    print(f"[Connection] User '{display_name}' connected (connection_id: {connection_id})")
-                    
-                    active_connections[client_id] = websocket
-                    client_sessions[client_id] = session_id  # セッションIDを記録
-                    
-                    # セッションに参加者を追加（表示名を使用）
-                    session_manager.add_participant(session_id, display_name)
-                    
-                    # 実験の参加者数を更新
-                    session = session_manager.get_session(session_id)
-                    if session and session.experiment_id:
-                        experiment_manager.update_participant_count(session.experiment_id)
-                    
-                    # システムメッセージを作成・保存
-                    join_message = Message(
-                        session_id=session_id,
-                        client_id=display_name,
-                        message_type="system",
-                        content=f"Client {display_name} has joined the room",
-                        timestamp=data["timestamp"]
-                    )
-                    message_store.save_message(join_message)
-                    
-                    message = {
-                        "type": "system",
-                        "message": f"Client {display_name} has joined the room",
-                        "timestamp": data["timestamp"]
-                    }
-                    await broadcast_message(message)
-                else:
-                    print("No client_id provided in initial message")
-                    await websocket.close(code=1000, reason="client_id required")
+                # 初期メッセージからトークンを取得して検証
+                token = data.get("token")
+                if not token or token not in session_tokens:
+                    print(f"[WebSocket] ❌ Invalid or missing token")
+                    await websocket.close(code=1000, reason="Invalid token")
                     return
+                
+                # トークンから情報を取得
+                token_data = session_tokens[token]
+                base_client_id = token_data["client_id"]
+                participant_code = token_data.get("participant_code")
+                experiment_id = token_data.get("experiment_id")
+                
+                # アクティブな実験の存在をチェック
+                active_exp = experiment_manager.get_active_experiment()
+                if not active_exp:
+                    await websocket.close(code=1000, reason="No active experiment")
+                    return
+                
+                # セッション作成（フローベース）
+                # session_idを生成（client_idベース + タイムスタンプ）
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                session_id = f"sess_{timestamp}"
+                session = session_manager.create_session(session_id=session_id)
+                
+                # セッション情報を設定
+                session.client_id = base_client_id
+                session.experiment_id = active_exp.experiment_id
+                session_manager.update_session(session)
+                session_created_now = True
+                
+                # 参加者コードをセッションに保存
+                if participant_code:
+                    session.participant_code = participant_code
+                    session_manager.update_session(session)
+                    
+                    # 実験に参加者コードを "used" としてマーク
+                    active_exp.mark_code_used(participant_code, base_client_id, session_id)
+                    from pathlib import Path
+                    experiment_manager._save_experiment(active_exp, Path(active_exp.data_directory))
+                
+                # トークンを使用済みにする（1回のみ使用可能）
+                del session_tokens[token]
+                
+                # 背後でユニークな接続IDを生成（UUID使用）
+                # 既存のIDと衝突しないことを保証
+                while True:
+                    connection_id = uuid.uuid4().hex
+                    if connection_id not in active_connections:
+                        break
+                
+                # 表示名は元のクライアントIDをそのまま使用（番号を付けない）
+                display_name = base_client_id
+                
+                client_id = connection_id  # 内部的にはユニークな接続IDを使用
+                connection_to_display_name[connection_id] = display_name
+                connection_to_base_name[connection_id] = base_client_id
+                
+                # 詳細なセッション情報を表示
+                print_section_header("🚀 NEW SESSION STARTED")
+                print_info_box("Session Info", {
+                    "Session ID": session_id,
+                    "Participant": base_client_id,
+                    "Participant Code": participant_code or "N/A",
+                    "Experiment": f"{active_exp.name} ({active_exp.experiment_id})",
+                    "Connection Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+                
+                active_connections[client_id] = websocket
+                client_sessions[client_id] = session_id  # セッションIDを記録
+                
+                # セッションに参加者を追加（表示名を使用）
+                session_manager.add_participant(session_id, display_name)
+                
+                # 実験の統計を再計算（セッション数と参加者数）
+                session = session_manager.get_session(session_id)
+                if session and session.experiment_id:
+                    experiment_manager.recalculate_experiment_statistics(session.experiment_id, session_manager)
+                
+                # 新規セッション作成の場合、session_idをクライアントに送信
+                if session_created_now:
+                    session_info = {
+                        "type": "session_created",
+                        "session_id": session_id,
+                        "message": f"Session {session_id} created successfully"
+                    }
+                    await websocket.send_json(session_info)
+                
+                # システムメッセージを作成・保存
+                join_message = Message(
+                    session_id=session_id,
+                    client_id=display_name,
+                    internal_id=client_id,  # 内部UUID（分析用）
+                    message_type="system",
+                    content=f"Client {display_name} has joined the room",
+                    timestamp=data["timestamp"]
+                )
+                message_store.save_message(join_message)
+                
+                message = {
+                    "type": "system",
+                    "client_id": display_name,
+                    "internal_id": client_id,  # 内部UUID（色生成用）
+                    "message": f"Client {display_name} has joined the room",
+                    "timestamp": data["timestamp"]
+                }
+                await broadcast_message(message, target_session_id=session_id)
+                
+                # 🆕 フローシステムがすべてのステップを管理（教示文含む）
             elif data["type"] == "message":
                 # 表示名を取得
                 display_name = connection_to_display_name.get(client_id, client_id)
@@ -489,6 +645,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
                 user_message = Message(
                     session_id=session_id,
                     client_id=display_name,
+                    internal_id=client_id,  # 内部UUID（分析用）
                     message_type="message",
                     content=data["message"],
                     timestamp=data["timestamp"]
@@ -501,10 +658,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
                 message = {
                     "type": "message",
                     "client_id": display_name,
+                    "internal_id": client_id,  # 内部UUID（色生成用）
                     "message": data["message"],
                     "timestamp": data["timestamp"],
                 }
-                await broadcast_message(message)
+                await broadcast_message(message, target_session_id=session_id)
                 
                 # ボットが応答を生成（ボット自身のメッセージには反応しない）
                 if not bot_manager.is_bot_message(client_id):
@@ -520,6 +678,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
                         bot_message_obj = Message(
                             session_id=session_id,
                             client_id=bot_manager.bot_client_id,
+                            internal_id="bot",  # ボット用の固定ID
                             message_type="bot",  # ボット専用のメッセージタイプ
                             content=bot_response,
                             timestamp=datetime.now().isoformat()
@@ -533,10 +692,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
                         bot_broadcast = {
                             "type": "bot",
                             "client_id": bot_manager.bot_client_id,
+                            "internal_id": "bot",  # ボットも固定ID（色生成用）
                             "message": bot_response,
                             "timestamp": bot_message_obj.timestamp,
                         }
-                        await broadcast_message(bot_broadcast)
+                        await broadcast_message(bot_broadcast, target_session_id=session_id)
                         
                     except Exception as e:
                         print(f"Error generating bot response: {e}")
@@ -568,6 +728,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
             leave_message = Message(
                 session_id=session_id,
                 client_id=display_name,
+                internal_id=client_id,  # 内部UUID（分析用）
                 message_type="system",
                 content=f"Client {display_name} has left the room",
                 timestamp=datetime.now().isoformat()
@@ -576,15 +737,43 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
             
             message = {
                 "type": "system",
+                "client_id": display_name,
+                "internal_id": client_id,  # 内部UUID（色生成用）
                 "message": f"Client {display_name} has left the room",
                 "timestamp": datetime.now().isoformat()
             }
-            await broadcast_message(message)
+            await broadcast_message(message, target_session_id=session_id)
+            
+            # セッションに参加者がいなくなったかチェック
+            session = session_manager.load_session(session_id)
+            if session and len(session.participants) == 0:
+                # 全参加者が切断した場合
+                print(f"[Session] All participants left session {session_id}")
+                
+                # ボットの会話履歴をクリア
+                if session_id in bot_manager.conversation_history:
+                    print(f"[Session] Clearing bot conversation history for {session_id}")
+                    bot_manager.clear_history(session_id)
+                
+                # セッションを終了状態にする
+                print(f"[Session] Ending session {session_id} (no participants)")
+                session_manager.end_session(session_id)
 
-async def broadcast_message(message: dict):
-    """全ての接続中のクライアントにメッセージをブロードキャストする"""
-    for connection in active_connections.values():
-        await connection.send_json(message)
+async def broadcast_message(message: dict, target_session_id: str = None):
+    """指定されたセッションの接続中のクライアントにメッセージをブロードキャストする
+    
+    Args:
+        message: 送信するメッセージ
+        target_session_id: 対象のセッションID。指定された場合、そのセッションの参加者のみに送信
+    """
+    for client_id, connection in active_connections.items():
+        # セッションIDが指定されている場合、そのセッションに属するクライアントのみに送信
+        if target_session_id:
+            if client_sessions.get(client_id) == target_session_id:
+                await connection.send_json(message)
+        else:
+            # セッションIDが指定されていない場合は全員に送信（後方互換性）
+            await connection.send_json(message)
 
 # ========== 管理API エンドポイント ==========
 
@@ -638,6 +827,28 @@ async def experiment_detail_page(request: Request, experiment_id: str, admin_tok
         "experiment": experiment
     })
 
+@app.get("/admin/experiment/{experiment_id}/flow")
+async def experiment_flow_editor_page(request: Request, experiment_id: str, admin_token: Optional[str] = Cookie(None)):
+    """実験フロー編集専用ページ"""
+    # 認証チェック
+    if not verify_admin_token(admin_token):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    
+    # 実験を取得
+    experiment = experiment_manager.get_experiment(experiment_id)
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    # JSONシリアライズ
+    import json
+    experiment_json = json.dumps(experiment.to_dict())
+    
+    return templates.TemplateResponse("experiment_flow_editor.html", {
+        "request": request,
+        "experiment": experiment,
+        "experiment_json": experiment_json
+    })
+
 @app.get("/api/sessions")
 async def get_sessions():
     """全セッションの取得"""
@@ -667,33 +878,6 @@ async def get_session_statistics(session_id: str):
     """セッションの統計情報を取得"""
     stats = message_store.get_session_statistics(session_id)
     return JSONResponse(content=stats)
-
-@app.post("/api/sessions/{session_id}/set_user_password")
-async def set_user_password(session_id: str, client_id: str, password: str):
-    """ユーザーIDにパスワードを設定"""
-    session = session_manager.load_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    session.set_user_password(client_id, password)
-    session_manager.update_session(session)
-    
-    return JSONResponse(content={
-        "status": "success",
-        "message": f"Password set for user {client_id}"
-    })
-
-@app.get("/api/sessions/{session_id}/check_user_password")
-async def check_user_password(session_id: str, client_id: str):
-    """ユーザーIDがパスワード保護されているか確認"""
-    session = session_manager.load_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    return JSONResponse(content={
-        "has_password": session.has_user_password(client_id),
-        "protected_users": session.get_protected_users()
-    })
 
 @app.get("/api/sessions/current/info")
 async def get_current_session_info():
@@ -748,6 +932,7 @@ async def end_session(session_id: str, admin_token: Optional[str] = Cookie(None)
     # このセッションに接続している全ユーザーに通知
     session_end_message = {
         "type": "session_end",
+        "internal_id": "system",  # システムメッセージ用の固定ID
         "message": "This session has been ended by admin.",
         "timestamp": datetime.now().isoformat()
     }
@@ -780,17 +965,12 @@ async def delete_session(session_id: str, admin_token: Optional[str] = Cookie(No
         raise HTTPException(status_code=404, detail="Session not found")
 
 @app.post("/api/sessions/new")
-async def create_new_session(end_previous: bool = True, password: Optional[str] = None,
-                            require_user_password: bool = False,
-                            disable_user_password: bool = False,
+async def create_new_session(end_previous: bool = True,
                             admin_token: Optional[str] = Cookie(None)):
     """新しいセッションを作成
     
     Args:
         end_previous: Trueの場合、既存のアクティブセッションを全て終了（デフォルト）
-        password: セッションのパスワード（オプション）
-        require_user_password: ユーザーパスワード必須（True=必須、False=任意）
-        disable_user_password: ユーザーパスワード完全無効（True=パスワードなし強制）
     """
     # 認証チェック
     if not verify_admin_token(admin_token):
@@ -800,9 +980,11 @@ async def create_new_session(end_previous: bool = True, password: Optional[str] 
         if active_connections:
             session_end_message = {
                 "type": "session_end",
+                "internal_id": "system",  # システムメッセージ用の固定ID
                 "message": "セッションが終了しました。新しいセッションが開始されます。",
                 "timestamp": datetime.now().isoformat()
             }
+            # この場合は全セッションに通知（セッションIDを指定しない）
             await broadcast_message(session_end_message)
         
         # 全てのアクティブなセッションを終了
@@ -812,14 +994,17 @@ async def create_new_session(end_previous: bool = True, password: Optional[str] 
             print(f"Previous session ended: {old_session.session_id}")
     
     # 新しいセッションを作成
-    session = session_manager.create_session(
-        password=password, 
-        require_user_password=require_user_password,
-        disable_user_password=disable_user_password
-    )
-    password_status = "with password" if password else "without password"
-    user_pw_status = "required" if require_user_password else "optional" if not disable_user_password else "disabled"
-    print(f"New session created: {session.session_id} ({password_status}, user password: {user_pw_status})")
+    session = session_manager.create_session()
+    
+    # アクティブな実験があればセッションに紐付け
+    active_exp = experiment_manager.get_active_experiment()
+    if active_exp:
+        session.experiment_id = active_exp.experiment_id
+        session_manager.update_session(session)
+        # 実験の統計を再計算
+        experiment_manager.recalculate_experiment_statistics(active_exp.experiment_id, session_manager)
+    
+    print(f"New session created: {session.session_id}")
     
     message = "New session created"
     if end_previous:
@@ -854,6 +1039,19 @@ async def get_conditions(admin_token: Optional[str] = Cookie(None)):
     return JSONResponse(content={
         "conditions": [c.to_dict() for c in conditions]
     })
+
+
+@app.get("/api/conditions/{condition_id}")
+async def get_condition(condition_id: str, admin_token: Optional[str] = Cookie(None)):
+    """特定の条件を取得"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    condition = condition_manager.get_condition(condition_id)
+    if not condition:
+        raise HTTPException(status_code=404, detail="Condition not found")
+    
+    return JSONResponse(content=condition.to_dict())
 
 
 @app.post("/api/conditions/{condition_id}/activate")
@@ -907,21 +1105,173 @@ async def create_experiment(request: Request, admin_token: Optional[str] = Cooki
     experiment = experiment_manager.create_experiment(
         name=data.get('name', 'New Experiment'),
         description=data.get('description', ''),
-        researcher=data.get('researcher', '')
+        researcher=data.get('researcher', ''),
+        slug=data.get('slug', None)  # オプショナル: 指定されなければ自動生成
     )
-    
-    # 同時セッション数制限を設定
-    if 'max_concurrent_sessions' in data and data['max_concurrent_sessions'] is not None:
-        experiment.max_concurrent_sessions = data['max_concurrent_sessions']
-        # 実験を保存し直す
-        from pathlib import Path
-        data_dir = Path(experiment.data_directory)
-        experiment_manager._save_experiment(experiment, data_dir)
     
     return JSONResponse(content={
         "status": "success",
         "experiment": experiment.to_dict()
     })
+
+@app.post("/api/experiments/{experiment_id}/generate_codes")
+async def generate_participant_codes(experiment_id: str, request: Request, admin_token: Optional[str] = Cookie(None)):
+    """参加者コードを生成"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        data = await request.json()
+        count = data.get('count', 0)
+        
+        print(f"[Codes] Generating {count} participant codes for experiment {experiment_id}")
+        
+        if count < 1:
+            print(f"[Codes] ❌ Invalid count: {count}")
+            raise HTTPException(status_code=400, detail="Count must be at least 1")
+        
+        experiment = experiment_manager.get_experiment(experiment_id)
+        if not experiment:
+            print(f"[Codes] ❌ Experiment not found: {experiment_id}")
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        
+        # 参加者コードを生成
+        codes = experiment.generate_participant_codes(count)
+        print(f"[Codes] ✅ Generated {len(codes)} codes")
+        
+        # 実験を保存
+        from pathlib import Path
+        experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
+        print(f"[Codes] ✅ Experiment saved")
+        
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
+        print(f"[Codes] ✅ Experiment reloaded in memory")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "codes": codes,
+            "count": len(codes)
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Codes] ❌ Error generating participant codes: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Note: More specific paths MUST come before generic paths with parameters
+@app.delete("/api/experiments/{experiment_id}/codes/unused")
+async def delete_unused_codes(experiment_id: str, admin_token: Optional[str] = Cookie(None)):
+    """未使用の参加者コードをすべて削除"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        experiment = experiment_manager.get_experiment(experiment_id)
+        if not experiment:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        
+        # 未使用コードを削除
+        unused_codes = [code for code, data in experiment.participant_codes.items() 
+                       if data["status"] == "unused"]
+        
+        for code in unused_codes:
+            del experiment.participant_codes[code]
+        
+        # 保存
+        from pathlib import Path
+        experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
+        
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
+        
+        return JSONResponse(content={
+            "status": "success",
+            "deleted_count": len(unused_codes),
+            "deleted_codes": unused_codes
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Codes] ❌ Error deleting unused codes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/experiments/{experiment_id}/codes")
+async def delete_all_codes(experiment_id: str, admin_token: Optional[str] = Cookie(None)):
+    """すべての参加者コードを削除"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        experiment = experiment_manager.get_experiment(experiment_id)
+        if not experiment:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        
+        # すべてのコードを削除
+        count = len(experiment.participant_codes)
+        experiment.participant_codes = {}
+        
+        # 保存
+        from pathlib import Path
+        experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
+        
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
+        
+        return JSONResponse(content={
+            "status": "success",
+            "deleted_count": count
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Codes] ❌ Error deleting all codes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/experiments/{experiment_id}/codes/{code}")
+async def delete_participant_code(experiment_id: str, code: str, admin_token: Optional[str] = Cookie(None)):
+    """個別の参加者コードを削除"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    print(f"[Codes] 🗑️ Delete code '{code}' for experiment: {experiment_id}")
+    
+    try:
+        experiment = experiment_manager.get_experiment(experiment_id)
+        if not experiment:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        
+        # コードを削除
+        if code not in experiment.participant_codes:
+            raise HTTPException(status_code=404, detail="Code not found")
+        
+        # 未使用のみ削除可能
+        if experiment.participant_codes[code]["status"] != "unused":
+            raise HTTPException(status_code=400, detail="Cannot delete code that is in use or completed")
+        
+        del experiment.participant_codes[code]
+        
+        # 保存
+        from pathlib import Path
+        experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
+        
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
+        
+        print(f"[Codes] ✅ Deleted code: {code}")
+        
+        return JSONResponse(content={"status": "success", "deleted_code": code})
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Codes] ❌ Error deleting code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/experiments/{experiment_id}/start")
 async def start_experiment(experiment_id: str, admin_token: Optional[str] = Cookie(None)):
@@ -940,35 +1290,6 @@ async def end_experiment(experiment_id: str, admin_token: Optional[str] = Cookie
     
     experiment_manager.end_experiment(experiment_id)
     return JSONResponse(content={"status": "success"})
-
-@app.post("/api/experiments/{experiment_id}/update_limit")
-async def update_experiment_limit(request: Request, experiment_id: str, admin_token: Optional[str] = Cookie(None)):
-    """実験の同時セッション数制限を更新"""
-    if not verify_admin_token(admin_token):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    data = await request.json()
-    max_concurrent_sessions = data.get('max_concurrent_sessions')
-    
-    # 実験を取得
-    experiment = experiment_manager.get_experiment(experiment_id)
-    if not experiment:
-        raise HTTPException(status_code=404, detail="Experiment not found")
-    
-    # 制限を更新
-    experiment.max_concurrent_sessions = max_concurrent_sessions
-    
-    # 保存
-    from pathlib import Path
-    data_dir = Path(experiment.data_directory)
-    experiment_manager._save_experiment(experiment, data_dir)
-    
-    print(f"[Experiment] Updated concurrent limit for {experiment_id}: {max_concurrent_sessions}")
-    
-    return JSONResponse(content={
-        "status": "success",
-        "max_concurrent_sessions": max_concurrent_sessions
-    })
 
 @app.post("/api/experiments/{experiment_id}/pause")
 async def pause_experiment(experiment_id: str, admin_token: Optional[str] = Cookie(None)):
@@ -1038,10 +1359,22 @@ async def create_experiment_condition(
         experiment_group=data.get('experiment_group') or data['name'],
         weight=data.get('weight', 1),
         auto_create_session=data.get('auto_create_session', True),
-        end_previous_session=data.get('end_previous_session', False)
+        end_previous_session=data.get('end_previous_session', False),
+        instruction_text=data.get('instruction_text'),
+        time_limit_minutes=data.get('time_limit_minutes')
     )
     
     condition_manager.save_condition(condition)
+    
+    # ✅ 新機能: 条件を実験のtemplate_idsに自動追加
+    experiment = experiment_manager.get_experiment(experiment_id)
+    if experiment:
+        if condition.condition_id not in experiment.template_ids:
+            experiment.template_ids.append(condition.condition_id)
+            from pathlib import Path
+            data_dir = Path(experiment.data_directory)
+            experiment_manager._save_experiment(experiment, data_dir)
+            print(f"[Condition] ✅ Auto-added to experiment template_ids: {condition.name}")
     
     return JSONResponse(content={
         "status": "success",
@@ -1083,7 +1416,7 @@ async def get_experiment_statistics(experiment_id: str, admin_token: Optional[st
                 "message_count": 0
             }
         condition_stats[condition]["session_count"] += 1
-        condition_stats[condition]["participant_count"] += session.participant_count
+        condition_stats[condition]["participant_count"] += len(session.participants)
         condition_stats[condition]["message_count"] += session.total_messages
     
     return JSONResponse(content={
@@ -1091,3 +1424,769 @@ async def get_experiment_statistics(experiment_id: str, admin_token: Optional[st
         "total_sessions": len(exp_sessions),
         "condition_stats": list(condition_stats.values())
     })
+
+@app.post("/api/experiments/{experiment_id}/flow")
+async def save_experiment_flow(experiment_id: str, request: Request, admin_token: Optional[str] = Cookie(None)):
+    """🆕 実験レベルのフローを保存"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        data = await request.json()
+        experiment_flow = data.get('experiment_flow', [])
+        
+        # 実験を取得
+        experiment = experiment_manager.get_experiment(experiment_id)
+        if not experiment:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        
+        # experiment_flowを更新
+        experiment.experiment_flow = experiment_flow
+        
+        # 保存
+        from pathlib import Path
+        data_dir = Path(experiment.data_directory)
+        experiment_manager._save_experiment(experiment, data_dir)
+        
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
+        
+        print(f"[Flow] Saved {len(experiment_flow)} steps | {experiment.name}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Experiment flow saved successfully",
+            "step_count": len(experiment_flow)
+        })
+        
+    except Exception as e:
+        print(f"[Experiment] Error saving flow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ========== アンケート回答 API ==========
+
+@app.post("/api/sessions/{session_id}/survey")
+async def submit_survey_response(session_id: str, request: Request):
+    """アンケート回答を保存（旧形式、後方互換性のため残す）"""
+    try:
+        data = await request.json()
+        client_id = data.get('client_id')
+        responses = data.get('responses', [])
+        
+        if not client_id:
+            raise HTTPException(status_code=400, detail="client_id is required")
+        
+        # セッションを取得
+        session = session_manager.load_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # 回答をSurveyResponseオブジェクトに変換
+        survey_responses = [
+            SurveyResponse(
+                question_id=resp['question_id'],
+                answer=resp['answer']
+            )
+            for resp in responses
+        ]
+        
+        # セッションに回答を保存
+        session.add_survey_response(client_id, survey_responses)
+        session_manager.update_session(session)
+        
+        print(f"[Survey] 📝 Survey responses saved for {client_id} in session {session_id}")
+        print(f"   Total responses: {len(survey_responses)}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Survey responses saved successfully",
+            "response_count": len(survey_responses)
+        })
+        
+    except Exception as e:
+        print(f"[Survey] Error saving survey response: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ========== 🆕 多段階実験フロー API ==========
+
+@app.get("/api/sessions/{session_id}/flow/current")
+async def get_current_step(session_id: str, client_id: str = None):
+    """現在のステップ情報を取得"""
+    try:
+        # セッションを取得
+        session = session_manager.load_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # 🆕 完了済み参加者チェック
+        if client_id and session.is_participant_completed(client_id):
+            return JSONResponse(content={
+                "already_completed": True,
+                "message": "You have already completed this experiment. Thank you for your participation!"
+            })
+        
+        # 実験レベルのフローを取得（フローベースシステム）
+        if not session.experiment_id:
+            return JSONResponse(content={
+                "has_flow": False,
+                "message": "No experiment configured for this session"
+            })
+        
+        experiment = experiment_manager.get_experiment(session.experiment_id)
+        if not experiment:
+            return JSONResponse(content={
+                "has_flow": False,
+                "message": "Experiment not found"
+            })
+        
+        if not experiment.experiment_flow or len(experiment.experiment_flow) == 0:
+            return JSONResponse(content={
+                "has_flow": False,
+                "message": "No experiment flow configured"
+            })
+        
+        # 実験フローをExperimentStepオブジェクトに変換
+        from .models.condition import ExperimentStep
+        effective_flow = [ExperimentStep.from_dict(step) for step in experiment.experiment_flow]
+        
+        # 現在のステップを取得
+        if session.current_step_index >= len(effective_flow):
+            # すべてのステップが完了
+            print_info_box("✅ Experiment Completed", {
+                "Session": session_id[:20] + "...",
+                "Participant": session.client_id,
+                "Total Steps": len(effective_flow),
+                "Completed": "All steps"
+            })
+            return JSONResponse(content={
+                "has_flow": True,
+                "completed": True,
+                "message": "All steps completed"
+            })
+        
+        current_step = effective_flow[session.current_step_index]
+        
+        # 進捗情報を表示
+        print_progress(
+            session.current_step_index + 1,
+            len(effective_flow),
+            f"{current_step.step_type.upper()}: {current_step.title or current_step.step_id}"
+        )
+        
+        return JSONResponse(content={
+            "has_flow": True,
+            "completed": False,
+            "current_step_index": session.current_step_index,
+            "total_steps": len(effective_flow),
+            "current_step": current_step.to_dict(),
+            "completed_steps": session.completed_steps
+        })
+        
+    except Exception as e:
+        print(f"[Flow] Error getting current step: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sessions/{session_id}/flow/advance")
+async def advance_step(session_id: str, request: Request):
+    """次のステップに進む"""
+    try:
+        data = await request.json()
+        client_id = data.get('client_id')
+        step_response = data.get('response')  # ステップの回答データ
+        
+        if not client_id:
+            raise HTTPException(status_code=400, detail="client_id is required")
+        
+        # セッションを取得
+        session = session_manager.load_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # 実験を取得（フローベースシステム）
+        if not session.experiment_id:
+            raise HTTPException(status_code=400, detail="No experiment configured for this session")
+        
+        experiment = experiment_manager.get_experiment(session.experiment_id)
+        if not experiment:
+            raise HTTPException(status_code=400, detail="Experiment not found")
+        
+        if not experiment.experiment_flow or len(experiment.experiment_flow) == 0:
+            raise HTTPException(status_code=400, detail="No experiment flow configured")
+        
+        # 実験フローをExperimentStepオブジェクトに変換
+        from .models.condition import ExperimentStep
+        effective_flow = [ExperimentStep.from_dict(step) for step in experiment.experiment_flow]
+        
+        # 現在のステップを完了としてマーク
+        if session.current_step_index < len(effective_flow):
+            current_step = effective_flow[session.current_step_index]
+            session.complete_step(current_step.step_id)
+            
+            # 回答データを保存
+            if step_response:
+                session.add_step_response(current_step.step_id, client_id, step_response)
+            
+            # ステップ完了を表示
+            print_info_box("✓ Step Completed", {
+                "Step": f"{current_step.step_type.upper()}: {current_step.title or current_step.step_id}",
+                "Participant": client_id,
+                "Progress": f"{session.current_step_index + 1}/{len(effective_flow)}"
+            })
+        
+        # 次のステップに進む
+        session.advance_step()
+        session_manager.update_session(session)
+        
+        # 次のステップ情報を返す
+        if session.current_step_index >= len(effective_flow):
+            # 参加者を完了としてマーク
+            session.mark_participant_completed(client_id)
+            session_manager.update_session(session)
+            
+            # 参加者コードを "completed" としてマーク
+            if session.participant_code and session.experiment_id:
+                experiment = experiment_manager.get_experiment(session.experiment_id)
+                if experiment:
+                    experiment.mark_code_completed(session.participant_code)
+                    from pathlib import Path
+                    experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
+            
+            # 実験完了を表示
+            print_section_header("🎉 PARTICIPANT COMPLETED EXPERIMENT")
+            print_info_box("Completion Summary", {
+                "Participant": client_id,
+                "Participant Code": session.participant_code or "N/A",
+                "Session ID": session_id[:20] + "...",
+                "Experiment": experiment.name if experiment else "N/A",
+                "Total Steps": len(effective_flow),
+                "Completion Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+            
+            return JSONResponse(content={
+                "status": "success",
+                "completed": True,
+                "message": "All steps completed"
+            })
+        
+        next_step = effective_flow[session.current_step_index]
+        next_step_dict = next_step.to_dict()
+        
+        # 🆕 ブランチステップの場合、ランダムにパスを選択してそのステップを返す
+        if next_step.step_type == 'branch':
+            # 元のJSONデータからbranchesを取得
+            original_step_data = experiment.experiment_flow[session.current_step_index]
+            branches = original_step_data.get('branches', [])
+            
+            if branches:
+                import random
+                # ランダムにbranchを選択（weightを考慮）
+                selected_branch = random.choice(branches)
+                
+                # ブランチ選択を表示
+                print_info_box("🔀 Branch Selected", {
+                    "Branch Point": next_step.step_id,
+                    "Selected Path": selected_branch.get('branch_id', 'unknown'),
+                    "Condition": selected_branch.get('condition_label', 'N/A'),
+                    "Participant": client_id
+                })
+                
+                # ブランチの最初のステップを取得
+                branch_steps = selected_branch.get('steps', [])
+                if branch_steps:
+                    from .models.condition import ExperimentStep
+                    branch_step = ExperimentStep.from_dict(branch_steps[0])
+                    
+                    # ブランチ選択情報をセッションに保存
+                    branch_id = selected_branch.get('branch_id', 'unknown')
+                    condition_label = selected_branch.get('condition_label', 'N/A')
+                    
+                    session.add_step_response(next_step.step_id, client_id, {
+                        "branch_selected": branch_id,
+                        "condition_label": condition_label
+                    })
+                    
+                    # セッションレベルで条件を記録（データ分析用: branch_idを保存）
+                    session.assign_condition(next_step.step_id, branch_id)
+                    session_manager.update_session(session)
+                    
+                    return JSONResponse(content={
+                        "status": "success",
+                        "completed": False,
+                        "current_step_index": session.current_step_index,
+                        "next_step": branch_step.to_dict(),
+                        "is_branch_step": True
+                    })
+        
+        return JSONResponse(content={
+            "status": "success",
+            "completed": False,
+            "current_step_index": session.current_step_index,
+            "next_step": next_step_dict
+        })
+        
+    except Exception as e:
+        print(f"[Flow] Error advancing step: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sessions/{session_id}/ai_evaluate")
+async def ai_evaluate_chat(session_id: str, request: Request):
+    """AIによるチャット評価"""
+    try:
+        data = await request.json()
+        client_id = data.get('client_id')
+        step_id = data.get('step_id')
+        evaluation_config = data.get('evaluation_config', {})
+        
+        if not client_id or not step_id:
+            raise HTTPException(status_code=400, detail="client_id and step_id are required")
+        
+        import ollama
+        import re
+        from pathlib import Path
+        import json
+        
+        # セッションを取得
+        session = session_manager.load_session(session_id)
+        if not session or not session.experiment_id:
+            raise HTTPException(status_code=404, detail="Session or experiment not found")
+        
+        experiment = experiment_manager.get_experiment(session.experiment_id)
+        if not experiment:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        
+        # メッセージファイルを読み込み
+        messages_file = Path(experiment.data_directory) / "messages" / f"{session_id}.json"
+        if not messages_file.exists():
+            raise HTTPException(status_code=404, detail="No messages found for this session")
+        
+        with open(messages_file, 'r', encoding='utf-8') as f:
+            messages_data = json.load(f)
+        
+        # ユーザーとボットのメッセージのみを抽出
+        conversation = []
+        for msg in messages_data.get('messages', []):
+            if msg.get('type') in ['user', 'bot']:
+                role = "ユーザー" if msg['type'] == 'user' else "AI"
+                conversation.append(f"{role}: {msg.get('message', '')}")
+        
+        if len(conversation) < 2:
+            raise HTTPException(status_code=400, detail="Not enough messages to evaluate")
+        
+        conversation_text = "\n".join(conversation)
+        
+        # 評価質問を取得（設定から）
+        questions = evaluation_config.get('questions', [])
+        evaluation_model = evaluation_config.get('evaluation_model', 'gemma2:9b')
+        context_prompt = evaluation_config.get('context_prompt', '')
+        
+        # デフォルト質問（設定がない場合）
+        if not questions:
+            questions = [
+                {"question_id": "q1", "text": "ユーザーは真面目に相談をしていましたか？"},
+                {"question_id": "q2", "text": "会話内容は充実していましたか？"},
+                {"question_id": "q3", "text": "ユーザーは積極的に会話に参加していましたか？"},
+                {"question_id": "q4", "text": "会話は意味のある内容でしたか？"}
+            ]
+        
+        # 評価プロンプトを構築
+        context_text = context_prompt if context_prompt else "以下はユーザーとAIカウンセラー/アドバイザーの会話記録です。この会話を客観的に評価してください。"
+        
+        questions_text = ""
+        for i, q in enumerate(questions, 1):
+            questions_text += f"\n{i}. {q.get('text', '')}\n   (1=全く当てはまらない、4=どちらとも言えない、7=非常に当てはまる)\n"
+        
+        evaluation_prompt = f"""{context_text}
+
+【会話記録】
+{conversation_text}
+
+【評価項目】
+以下の質問に1-7のリッカート尺度で回答してください。
+{questions_text}
+
+【回答形式】
+必ず以下の形式で回答してください：
+Q1: [1-7の数値]
+Q2: [1-7の数値]
+...
+
+数値のみを記載し、他の説明は不要です。"""
+        
+        # AIに評価を依頼
+        print(f"[AI Evaluation] Evaluating chat session {session_id} using {evaluation_model}...")
+        response = ollama.chat(
+            model=evaluation_model,
+            messages=[{"role": "user", "content": evaluation_prompt}]
+        )
+        
+        ai_response = response['message']['content']
+        print(f"[AI Evaluation] AI response: {ai_response}")
+        
+        # 回答をパース
+        evaluation_results = {}
+        for i in range(1, len(questions) + 1):
+            match = re.search(rf'Q{i}:\s*(\d+)', ai_response)
+            if match:
+                score = int(match.group(1))
+                if 1 <= score <= 7:
+                    q_id = questions[i-1].get('question_id', f'q{i}')
+                    evaluation_results[q_id] = score
+        
+        # セッションに評価結果を保存
+        session.add_step_response(step_id, "ai_system", {
+            "evaluation_results": evaluation_results,
+            "raw_response": ai_response
+        })
+        session_manager.update_session(session)
+        
+        print(f"[AI Evaluation] Saved evaluation results: {evaluation_results}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "results": evaluation_results,
+            "raw_response": ai_response
+        })
+        
+    except Exception as e:
+        print(f"[AI Evaluation] Error during evaluation: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sessions/{session_id}/flow/submit")
+async def submit_step_response(session_id: str, request: Request):
+    """ステップの回答を保存（進まない）"""
+    try:
+        data = await request.json()
+        client_id = data.get('client_id')
+        step_id = data.get('step_id')
+        response_data = data.get('response')
+        
+        if not client_id or not step_id:
+            raise HTTPException(status_code=400, detail="client_id and step_id are required")
+        
+        # セッションを取得
+        session = session_manager.load_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # 回答を保存
+        session.add_step_response(step_id, client_id, response_data)
+        session_manager.update_session(session)
+        
+        print(f"[Flow] Response saved for step '{step_id}' by {client_id}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Response saved successfully"
+        })
+        
+    except Exception as e:
+        print(f"[Flow] Error saving step response: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sessions/{session_id}/chat/configure")
+async def configure_chat(session_id: str, request: Request):
+    """チャットステップのbot設定を適用"""
+    try:
+        data = await request.json()
+        bot_model = data.get('bot_model', 'gemma3:4b')
+        system_prompt = data.get('system_prompt', '')
+        temperature = data.get('temperature', 0.7)
+        top_p = data.get('top_p', 0.9)
+        top_k = data.get('top_k', 40)
+        repeat_penalty = data.get('repeat_penalty', 1.1)
+        num_predict = data.get('num_predict')
+        num_thread = data.get('num_thread')
+        num_ctx = data.get('num_ctx')
+        num_gpu = data.get('num_gpu')
+        num_batch = data.get('num_batch')
+        
+        # セッションを取得
+        session = session_manager.load_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # bot_managerに設定を適用
+        bot_manager.set_model(session_id, bot_model)
+        bot_manager.set_system_prompt(session_id, system_prompt)
+        bot_manager.set_temperature(session_id, temperature)
+        bot_manager.set_top_p(session_id, top_p)
+        bot_manager.set_top_k(session_id, top_k)
+        bot_manager.set_repeat_penalty(session_id, repeat_penalty)
+        bot_manager.set_num_predict(session_id, num_predict)
+        bot_manager.set_num_thread(session_id, num_thread)
+        bot_manager.set_num_ctx(session_id, num_ctx)
+        bot_manager.set_num_gpu(session_id, num_gpu)
+        bot_manager.set_num_batch(session_id, num_batch)
+        
+        # 詳細なAI設定情報を表示
+        print_info_box("🤖 AI Configuration Applied", {
+            "Session": session_id[:20] + "...",
+            "Model": bot_model,
+            "Temperature": f"{temperature} (creativity)",
+            "Top P": f"{top_p} (nucleus sampling)",
+            "Top K": f"{top_k} (token selection)",
+            "Repeat Penalty": f"{repeat_penalty} (anti-repetition)",
+            "Max Tokens": num_predict if num_predict else "Unlimited",
+            "CPU Threads": num_thread if num_thread else "Default (8)",
+            "Context Length": num_ctx if num_ctx else "Default (8192)",
+            "GPU Layers": num_gpu if num_gpu is not None else "Default (-1, all)",
+            "Batch Size": num_batch if num_batch else "Default (512)"
+        })
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Chat configuration applied",
+            "config": {
+                "bot_model": bot_model,
+                "temperature": temperature,
+                "top_p": top_p,
+                "top_k": top_k,
+                "repeat_penalty": repeat_penalty,
+                "num_predict": num_predict,
+                "num_thread": num_thread,
+                "num_ctx": num_ctx,
+                "num_gpu": num_gpu,
+                "num_batch": num_batch
+            }
+        })
+        
+    except Exception as e:
+        print(f"[Chat Config] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/sessions/{session_id}/survey")
+async def get_survey_responses(session_id: str, admin_token: Optional[str] = Cookie(None)):
+    """セッションのアンケート回答を取得（管理者用）"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    session = session_manager.load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # アンケート回答を辞書形式に変換
+    survey_data = {}
+    for client_id, responses in session.survey_responses.items():
+        survey_data[client_id] = [resp.to_dict() for resp in responses]
+    
+    return JSONResponse(content={
+        "session_id": session_id,
+        "survey_responses": survey_data
+    })
+
+@app.get("/api/experiments/{experiment_id}/surveys")
+async def get_experiment_surveys(experiment_id: str, admin_token: Optional[str] = Cookie(None)):
+    """実験全体のアンケート回答を取得（管理者用）"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    # 実験に属するすべてのセッションを取得
+    all_sessions = session_manager.get_all_sessions()
+    exp_sessions = [s for s in all_sessions if s.experiment_id == experiment_id]
+    
+    # 全セッションのアンケート回答を収集
+    all_surveys = []
+    for session in exp_sessions:
+        for client_id, responses in session.survey_responses.items():
+            all_surveys.append({
+                "session_id": session.session_id,
+                "client_id": client_id,
+                "experiment_group": session.experiment_group,
+                "responses": [resp.to_dict() for resp in responses]
+            })
+    
+    return JSONResponse(content={
+        "experiment_id": experiment_id,
+        "total_responses": len(all_surveys),
+        "survey_data": all_surveys
+    })
+
+# ========== アンケートデータエクスポート API ==========
+
+@app.post("/api/sessions/{session_id}/export/survey")
+async def export_session_survey(session_id: str, format: str = "json", 
+                                admin_token: Optional[str] = Cookie(None)):
+    """セッションのアンケート回答をエクスポート（直接ダウンロード）"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        if format == "csv":
+            content = data_exporter.export_survey_responses_to_csv(session_id, session_manager)
+            filename = f"survey_{session_id}_{timestamp}.csv"
+            return Response(
+                content=content,
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        elif format == "json":
+            content = data_exporter.export_survey_responses_to_json(session_id, session_manager)
+            filename = f"survey_{session_id}_{timestamp}.json"
+            return Response(
+                content=content,
+                media_type="application/json",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid format")
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/experiments/{experiment_id}/export/survey")
+async def export_experiment_survey(experiment_id: str, format: str = "json",
+                                   admin_token: Optional[str] = Cookie(None)):
+    """実験全体のアンケート回答をエクスポート（直接ダウンロード）"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        if format == "csv":
+            content = data_exporter.export_experiment_survey_responses_to_csv(
+                experiment_id, session_manager
+            )
+            filename = f"survey_experiment_{experiment_id}_{timestamp}.csv"
+            return Response(
+                content=content,
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        elif format == "json":
+            content = data_exporter.export_experiment_survey_responses_to_json(
+                experiment_id, session_manager
+            )
+            filename = f"survey_experiment_{experiment_id}_{timestamp}.json"
+            return Response(
+                content=content,
+                media_type="application/json",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid format")
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/experiments/{experiment_id}/export/messages")
+async def export_experiment_messages(experiment_id: str, format: str = "csv",
+                                     admin_token: Optional[str] = Cookie(None)):
+    """実験全体のメッセージデータをエクスポート（直接ダウンロード）"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        content = data_exporter.export_experiment_all_data_to_csv(
+            experiment_id, session_manager, message_store
+        )
+        filename = f"messages_experiment_{experiment_id}_{timestamp}.csv"
+        return Response(
+            content=content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/experiments/{experiment_id}/export/sessions")
+async def export_experiment_sessions_data(experiment_id: str, format: str = "csv",
+                                          admin_token: Optional[str] = Cookie(None)):
+    """実験全体のセッション情報をエクスポート（直接ダウンロード）"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        content = data_exporter.export_experiment_sessions_to_csv(
+            experiment_id, session_manager
+        )
+        filename = f"sessions_experiment_{experiment_id}_{timestamp}.csv"
+        return Response(
+            content=content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/experiments/{experiment_id}/export/wide")
+async def export_experiment_wide_format(experiment_id: str,
+                                        admin_token: Optional[str] = Cookie(None)):
+    """
+    実験データをワイド形式CSVでエクスポート（統計分析用）
+    1行 = 1参加者、各質問が列になる
+    """
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        print(f"[Export] Exporting wide format CSV for experiment {experiment_id}")
+        
+        content = data_exporter.export_experiment_wide_format_csv(
+            experiment_id, session_manager, message_store, experiment_manager
+        )
+        
+        filename = f"wide_format_{experiment_id}_{timestamp}.csv"
+        
+        print(f"[Export] Wide format CSV generated: {len(content)} bytes")
+        
+        return Response(
+            content=content,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        print(f"[Export] Error generating wide format CSV: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sessions/export/all")
+async def export_all_sessions(format: str = "csv", admin_token: Optional[str] = Cookie(None)):
+    """全セッションの情報をエクスポート（直接ダウンロード）"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        if format == "csv":
+            content = data_exporter.export_all_sessions_to_csv(session_manager)
+            filename = f"all_sessions_{timestamp}.csv"
+            return Response(
+                content=content,
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        elif format == "json":
+            content = data_exporter.export_all_sessions_summary(session_manager)
+            filename = f"all_sessions_{timestamp}.json"
+            return Response(
+                content=content,
+                media_type="application/json",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid format")
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
