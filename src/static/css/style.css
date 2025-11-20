@@ -33,10 +33,13 @@ body {
     width: 100%;
     height: 100vh;
     height: -webkit-fill-available; /* iOS Safari対応 */
+    max-height: 100vh;
     padding: 20px;
     padding-bottom: max(20px, env(safe-area-inset-bottom)); /* iPhone Safe Area対応 */
     box-sizing: border-box;
-    overflow: hidden; /* メッセージエリアのみスクロール可能に */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .chat-container {
@@ -122,12 +125,14 @@ body {
 }
 
 .chat-messages {
-    flex: 1;
+    flex: 1 1 auto;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 20px;
     background-color: #f8f9fa;
     display: flex;
     flex-direction: column;
+    min-height: 0;
 }
 
 .message {
@@ -355,6 +360,8 @@ body {
     align-items: center;
     gap: 10px;
     flex-shrink: 0;
+    flex-grow: 0;
+    flex-basis: auto;
     -webkit-tap-highlight-color: transparent; /* タップ時のハイライト削除 */
 }
 
@@ -777,10 +784,12 @@ body {
     background-color: #f8f9fa;
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     padding: 20px;
     overflow-y: auto;
+    overflow-x: hidden;
     z-index: 1000;
+    box-sizing: border-box;
 }
 
 .survey-content {
@@ -790,8 +799,10 @@ body {
     padding: 40px;
     max-width: 800px;
     width: 100%;
-    max-height: 90vh;
-    overflow-y: auto;
+    max-height: none;
+    overflow-y: visible;
+    margin: 20px auto;
+    box-sizing: border-box;
 }
 
 .survey-content h2 {
@@ -1106,13 +1117,14 @@ body {
 .flow-container {
     width: 100%;
     height: 100%;
-    max-height: 100%;
+    max-height: 100vh;
     background-color: white;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     display: none;
     flex-direction: column;
     overflow: hidden;
+    position: relative;
 }
 
 .flow-content {
@@ -1123,9 +1135,12 @@ body {
     height: 100%;
     margin: 0 auto;
     overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     box-sizing: border-box;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .flow-progress {
