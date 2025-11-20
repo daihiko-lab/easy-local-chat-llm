@@ -56,6 +56,7 @@ class Session(BaseModel):
     completed_steps: List[str] = Field(default_factory=list)  # 完了したステップのID一覧
     step_responses: Dict[str, Dict[str, Any]] = Field(default_factory=dict)  # {step_id: {client_id: response_data}}
     completed_participants: List[str] = Field(default_factory=list)  # 実験を完了した参加者のclient_id一覧
+    assigned_conditions: Dict[str, str] = Field(default_factory=dict)  # ブランチポイント -> 割り当てられた条件ラベル
     
     def add_participant(self, client_id: str):
         """参加者を追加"""
@@ -137,6 +138,15 @@ class Session(BaseModel):
     def get_step_response(self, step_id: str, client_id: str) -> Optional[Any]:
         """ステップの回答を取得"""
         return self.step_responses.get(step_id, {}).get(client_id)
+    
+    def assign_condition(self, branch_id: str, condition_label: str):
+        """ブランチポイントで割り当てられた条件を記録"""
+        self.assigned_conditions[branch_id] = condition_label
+        self.update_activity()
+    
+    def get_assigned_condition(self, branch_id: str) -> Optional[str]:
+        """ブランチポイントで割り当てられた条件を取得"""
+        return self.assigned_conditions.get(branch_id)
     
     def to_dict(self):
         """辞書形式に変換"""

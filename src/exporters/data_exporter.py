@@ -405,6 +405,7 @@ class DataExporter:
             'participant_code',
             'experiment_group',
             'condition_id',
+            'assigned_conditions',
             'created_at',
             'ended_at',
             'status',
@@ -426,12 +427,18 @@ class DataExporter:
                 except:
                     pass
             
+            # 割り当てられた条件をJSON文字列に変換
+            assigned_conditions_str = ''
+            if hasattr(session, 'assigned_conditions') and session.assigned_conditions:
+                assigned_conditions_str = json.dumps(session.assigned_conditions, ensure_ascii=False)
+            
             writer.writerow([
                 experiment_id,
                 session.session_id,
                 session.participant_code or '',
                 session.experiment_group or '',
                 session.condition_id or '',
+                assigned_conditions_str,
                 session.created_at,
                 session.ended_at or '',
                 session.status,
@@ -514,6 +521,13 @@ class DataExporter:
                     all_chat_fields[field_name] = True
         
         for session in exp_sessions:
+            # ブランチ選択結果をassigned_conditionsから収集
+            if hasattr(session, 'assigned_conditions') and session.assigned_conditions:
+                for branch_step_id, condition_label in session.assigned_conditions.items():
+                    field_name = f"{branch_step_id}_condition_label"
+                    if field_name not in all_branch_fields:
+                        all_branch_fields[field_name] = True
+            
             # 🆕 新形式: step_responsesからアンケート回答を収集
             if hasattr(session, 'step_responses') and session.step_responses:
                 for step_id, step_data in session.step_responses.items():
@@ -540,7 +554,7 @@ class DataExporter:
                                             full_id = f"ai_eval_{eval_q_id}"
                                             if full_id not in all_ai_eval_ids:
                                                 all_ai_eval_ids[full_id] = True
-                                # ブランチ選択結果
+                                # ブランチ選択結果（後方互換性）
                                 if 'branch_selected' in client_data:
                                     field_name = f"{step_id}_branch_selected"
                                     if field_name not in all_branch_fields:
@@ -687,6 +701,14 @@ class DataExporter:
             
             # ブランチ選択結果を追加
             branch_answers = {}
+            
+            # 新形式: assigned_conditionsから取得（優先）
+            if hasattr(session, 'assigned_conditions') and session.assigned_conditions:
+                for branch_step_id, condition_label in session.assigned_conditions.items():
+                    field_name = f"{branch_step_id}_condition_label"
+                    branch_answers[field_name] = condition_label
+            
+            # 旧形式: step_responsesから取得（後方互換性）
             if hasattr(session, 'step_responses') and session.step_responses:
                 for step_id, step_data in session.step_responses.items():
                     if isinstance(step_data, dict):
@@ -694,10 +716,12 @@ class DataExporter:
                             if isinstance(client_data, dict):
                                 if 'branch_selected' in client_data:
                                     field_name = f"{step_id}_branch_selected"
-                                    branch_answers[field_name] = client_data['branch_selected']
+                                    if field_name not in branch_answers:  # 新形式を優先
+                                        branch_answers[field_name] = client_data['branch_selected']
                                 if 'condition_label' in client_data:
                                     field_name = f"{step_id}_condition_label"
-                                    branch_answers[field_name] = client_data['condition_label']
+                                    if field_name not in branch_answers:  # 新形式を優先
+                                        branch_answers[field_name] = client_data['condition_label']
             
             for field_name in all_branch_fields.keys():
                 row_data.append(branch_answers.get(field_name, ''))

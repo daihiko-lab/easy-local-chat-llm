@@ -1697,10 +1697,16 @@ async def advance_step(session_id: str, request: Request):
                     branch_step = ExperimentStep.from_dict(branch_steps[0])
                     
                     # ブランチ選択情報をセッションに保存
+                    branch_id = selected_branch.get('branch_id', 'unknown')
+                    condition_label = selected_branch.get('condition_label', 'N/A')
+                    
                     session.add_step_response(next_step.step_id, client_id, {
-                        "branch_selected": selected_branch.get('branch_id'),
-                        "condition_label": selected_branch.get('condition_label')
+                        "branch_selected": branch_id,
+                        "condition_label": condition_label
                     })
+                    
+                    # セッションレベルで条件を記録（データ分析用）
+                    session.assign_condition(next_step.step_id, condition_label)
                     session_manager.update_session(session)
                     
                     return JSONResponse(content={
