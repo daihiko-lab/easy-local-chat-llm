@@ -523,8 +523,8 @@ class DataExporter:
         for session in exp_sessions:
             # ブランチ選択結果をassigned_conditionsから収集
             if hasattr(session, 'assigned_conditions') and session.assigned_conditions:
-                for branch_step_id, condition_label in session.assigned_conditions.items():
-                    field_name = f"{branch_step_id}_condition_label"
+                for branch_step_id, branch_id in session.assigned_conditions.items():
+                    field_name = f"{branch_step_id}_condition"
                     if field_name not in all_branch_fields:
                         all_branch_fields[field_name] = True
             
@@ -704,9 +704,9 @@ class DataExporter:
             
             # 新形式: assigned_conditionsから取得（優先）
             if hasattr(session, 'assigned_conditions') and session.assigned_conditions:
-                for branch_step_id, condition_label in session.assigned_conditions.items():
-                    field_name = f"{branch_step_id}_condition_label"
-                    branch_answers[field_name] = condition_label
+                for branch_step_id, branch_id in session.assigned_conditions.items():
+                    field_name = f"{branch_step_id}_condition"
+                    branch_answers[field_name] = branch_id
             
             # 旧形式: step_responsesから取得（後方互換性）
             if hasattr(session, 'step_responses') and session.step_responses:

@@ -1705,8 +1705,8 @@ async def advance_step(session_id: str, request: Request):
                         "condition_label": condition_label
                     })
                     
-                    # セッションレベルで条件を記録（データ分析用）
-                    session.assign_condition(next_step.step_id, condition_label)
+                    # セッションレベルで条件を記録（データ分析用: branch_idを保存）
+                    session.assign_condition(next_step.step_id, branch_id)
                     session_manager.update_session(session)
                     
                     return JSONResponse(content={
