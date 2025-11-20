@@ -1,256 +1,181 @@
 # Easy Local Chat LLM
 
-🤖 **Local Chat System with AI Assistant**
+ローカルLLMを使った心理学実験用チャットシステム
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](CHANGELOG.md)
-[![Python](https://img.shields.io/badge/python-3.9+-green.svg)](https://www.python.org/)
-[![Ollama](https://img.shields.io/badge/ollama-required-orange.svg)](https://ollama.ai/)
+## 特徴
 
-Real-time chat system with WebSocket communication and local LLM bot powered by Ollama (Gemma3). Ideal for research purposes with built-in data export and experiment management features.
+- リアルタイムAIチャット（Ollama + WebSocket）
+- 実験管理（条件分岐、ランダム割り当て）
+- データエクスポート（JSON/CSV）
+- 管理画面（統計表示、セッション監視）
 
-[日本語 README](README.ja.md)
+## 必要要件
 
-> This project is based on [easy-local-chat](https://github.com/yamanori99/easy-local-chat)
+- Python 3.9+
+- Ollama
+- 8GB以上のRAM推奨
 
-## ✨ Features
+## セットアップ
 
-- **Real-time Chat**: Low-latency WebSocket communication
-- **AI Bot**: Local LLM (e.g., Gemma3) with conversation history
-- **Experiment Management**: Multiple conditions, random assignment
-- **Data Management**: Auto-save sessions/messages, JSON/CSV export
-- **Admin Panel**: Data visualization, real-time statistics, session monitoring
-
-## Requirements
-
-- **Python 3.9+**
-- **Ollama** (for LLM bot)
-- Modern web browser
-
-> ⚠️ Virtual environment recommended for macOS/Linux
-
-## 🚀 Quick Start
-
-### 1. Setup Ollama
-
-**Install:**
+### 1. Ollamaのインストール
 
 ```bash
 # macOS
 brew install ollama
 
-# Linux
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# Windows: Download from https://ollama.ai/
-```
-
-**Start service and download model:**
-
-```bash
-# Start service
+# サービス起動
 ollama serve &
 
-# Download model (default: gemma3:4b)
-ollama pull gemma3:4b
+# モデルダウンロード（例: qwen3:14b）
+ollama pull qwen3:14b
 ```
 
-**Available models:**
-
-| Model | Size | Memory | Notes |
-|-------|------|--------|-------|
-| `gemma3:1b` | 815MB | 4GB | Lightweight & fast |
-| `gemma3:4b` | 3.3GB | 8GB | Balanced (recommended) |
-| `gemma3:12b` | 8.1GB | 16GB | High performance |
-
-### 2. Setup Project
+### 2. プロジェクトのセットアップ
 
 ```bash
-# Clone repository
-git clone https://github.com/yamanori99/easy-local-chat.git
-cd easy-local-chat
+# リポジトリをクローン
+git clone https://github.com/your-repo/easy-local-chat-llm.git
+cd easy-local-chat-llm
 
-# Setup virtual environment
+# 仮想環境の作成と有効化
 python3 -m venv venv
 source venv/bin/activate  # macOS/Linux
-# .\venv\Scripts\activate  # Windows
 
-# Install dependencies
+# 依存関係のインストール
 pip install -r requirements.txt
 ```
 
-### 3. Start Server
+### 3. サーバー起動
 
 ```bash
-# Using startup script (recommended)
+# 開発サーバー起動
 ./deployment/start_server_dev.sh
 
-# Or direct start
+# または直接起動
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Admin credentials will be set on first startup.
+初回起動時に管理者アカウントが設定されます。
 
-### 4. Access
+## 使い方
 
-**Local (same computer):**
-- Admin: `http://localhost:8000/admin`
-- Participant login: `http://localhost:8000/login`
+### 基本的な実験の流れ
 
-**Network (other devices):**
-- Admin: `http://YOUR_IP:8000/admin`
-- Participant login: `http://YOUR_IP:8000/login`
+1. **管理画面にアクセス**: `http://localhost:8000/admin`
 
-(IP address displayed on server startup)
+2. **実験を作成**
+   - 実験名、説明、研究者名を入力
+   - 「フローを編集」で実験の流れを設計
 
-## 📖 Usage
+3. **実験フローの設計**
+   - 同意説明、質問紙、チャット、分岐などのブロックを追加
+   - チャットステップでAIモデルとプロンプトを設定
+   - 条件分岐でランダム割り当てを設定
 
-### Basic Experiment Workflow
+4. **実験を開始**
+   - 「実験を開始」ボタンをクリック
 
-1. **Access admin panel** → `http://localhost:8000/admin`
+5. **参加者URLを共有**
+   - `http://YOUR_IP:8000/start/実験スラッグ` を参加者に送信
+   - 参加者は自動的に条件に割り当てられる
 
-2. **Create new experiment**
-   - Enter experiment name, description, researcher name
-   - Set max concurrent sessions if needed
+6. **データ収集**
+   - 管理画面でリアルタイム統計を確認
+   - 「エクスポート」ボタンでCSV/JSON形式でダウンロード
 
-3. **Create experimental conditions**
-   - Click "Create New Template" in experiment detail page
-   - Configure condition name, bot model, system prompt
-   - Create multiple conditions (automatically added to experiment)
-   - Optional: Set time limit, instructions, and survey
-
-4. **Start experiment**
-   - Click "Start Experiment" button
-
-5. **Share participant URL**
-   - Send login URL (`http://YOUR_IP:8000/login`) to participants
-   - Participants are automatically assigned to random conditions
-
-6. **Collect data**
-   - View real-time statistics in admin panel
-   - Download JSON/CSV using "Export" button
-   - Survey responses are automatically saved
-
-## 📊 Data Structure
-
-Readable directory names are created for each experiment:
+## データ構造
 
 ```
 data/
-└── user_study_2024/         # Auto-generated from experiment name
-    ├── experiments/         # Experiment configuration
-    ├── conditions/          # Experimental conditions
-    ├── sessions/            # Session information
-    ├── messages/            # Message data
-    └── exports/             # Exported data
+└── experiments/
+    └── 実験スラッグ/
+        ├── experiment.json      # 実験設定
+        ├── sessions/            # セッション情報
+        ├── messages/            # メッセージログ
+        └── exports/             # エクスポートデータ
 ```
 
-**Important behavior:**
-- Active experiment directories are automatically reused
-- Settings and data persist after server restart
-- Bot messages are recorded as `message_type: "bot"`
+## M4 Mac最適化
 
-## 📝 Survey Feature
+チャットステップで以下のパラメータを設定可能：
+- `num_thread`: CPUスレッド数（デフォルト: 8）
+- `num_ctx`: コンテキスト長（デフォルト: 8192）
+- `num_gpu`: GPUレイヤー数（デフォルト: -1、全レイヤー）
+- `num_batch`: バッチサイズ（デフォルト: 512）
 
-Display surveys to participants at the end of the experiment. Perfect for measuring psychological scales.
+## モニタリング
 
-### Supported Question Types
+### Ollamaのリアルタイム監視
 
-1. **Likert Scale** (`likert`)
-   - Example: "Strongly disagree (1) ~ Strongly agree (7)"
-   - Settings: `scale_min`, `scale_max`, `scale_min_label`, `scale_max_label`
-
-2. **Free Text** (`text`)
-   - Example: "Please share your thoughts about the experiment"
-   - Settings: `max_length` (maximum characters)
-
-3. **Single Choice** (`single_choice`)
-   - Example: "Select your gender"
-   - Settings: `choices` (list of options)
-
-4. **Multiple Choice** (`multiple_choice`)
-   - Example: "Select all that apply"
-   - Settings: `choices` (list of options)
-
-### Example Survey Configuration (JSON)
-
-```json
-{
-  "survey_title": "Post-Experiment Survey",
-  "survey_description": "Thank you for participating. Please answer the following questions.",
-  "survey_questions": [
-    {
-      "question_id": "q1",
-      "question_text": "Was the AI's response natural?",
-      "question_type": "likert",
-      "scale_min": 1,
-      "scale_max": 7,
-      "scale_min_label": "Not natural at all",
-      "scale_max_label": "Very natural",
-      "required": true
-    },
-    {
-      "question_id": "q2",
-      "question_text": "Please share your thoughts about the experiment",
-      "question_type": "text",
-      "max_length": 500,
-      "required": false
-    }
-  ]
-}
-```
-
-### Exporting Survey Data
-
-- **Per Session**: `/api/sessions/{session_id}/export/survey?format=csv`
-- **Entire Experiment**: `/api/experiments/{experiment_id}/export/survey?format=csv`
-
-Survey responses are automatically saved per participant and can be exported in CSV/JSON format.
-
-## ⚙️ Customization
-
-### Change Bot Model
-
-Specify when creating experimental conditions, or edit `src/main.py`:
-
-```python
-bot_manager = BotManager(model="gemma3:4b", bot_client_id="bot")
-```
-
-### Change Admin Account
+別ターミナルで以下を実行すると、Ollamaの状態を1秒ごとに更新表示できます：
 
 ```bash
-# Delete credentials file and restart
-rm data/admin_credentials.json
-./deployment/start_server_dev.sh
+# watchコマンドのインストール（初回のみ）
+brew install watch
+
+# リアルタイム監視開始
+watch -n 1 ollama ps
 ```
 
-## 🔧 Troubleshooting
+**表示される情報:**
+- `NAME`: 実行中のモデル名
+- `SIZE`: メモリ使用量
+- `PROCESSOR`: CPU/GPU使用状況
+- `CONTEXT`: コンテキストサイズ
+- `UNTIL`: メモリから解放されるまでの時間
 
-| Issue | Solution |
-|-------|----------|
-| Bot not responding | Check Ollama: `ps aux \| grep ollama`<br>Check models: `ollama list` |
-| Slow response | Use lighter model (`gemma3:1b`)<br>Recommended: 8GB+ RAM |
-| Connection error | Check port 8000 usage |
-| Model download fails | Restart Ollama: `killall ollama && ollama serve &` |
+**停止方法:** `Ctrl+C`
 
-## 🛠️ Tech Stack
+### サーバーログの確認
 
-- **Backend**: FastAPI, WebSocket, Ollama
-- **Frontend**: HTML5, CSS3, JavaScript
-- **LLM**: Gemma3 (Google)
+サーバーログには各AI呼び出しの詳細が自動表示されます：
 
-## 📖 Documentation
+```
+======================================================================
+🤖 OLLAMA MODEL INVOCATION (STREAMING)
+======================================================================
+Session ID    : abc123...
+Model         : qwen3:14b
+System Prompt : You are an empathetic counselor...
 
-- [CHANGELOG.md](CHANGELOG.md) - Version history
-- [deployment/README.md](deployment/README.md) - Deployment guide
-- API: `http://localhost:8000/docs` (after startup)
+Parameters:
+  temperature      : 0.8
+  top_p            : 0.9
+  top_k            : 40
+  repeat_penalty   : 1.1
+  num_predict      : Default (unlimited)
+  num_thread       : 8
+  num_ctx          : 8192
+  num_gpu          : -1 (all layers)
+  num_batch        : 512
 
-## 🔗 Links
+Conversation History: 3 messages
+======================================================================
 
-- [Ollama Official Site](https://ollama.ai/)
-- [Original Project](https://github.com/yamanori99/easy-local-chat)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+✅ Streaming response completed: 156 chars
+```
 
-## License
+これにより、各セッションでどのモデルがどんなパラメータで呼び出されているかを完全に把握できます。
+
+## トラブルシューティング
+
+| 問題 | 解決方法 |
+|------|----------|
+| Botが応答しない | `ollama serve` が起動しているか確認<br>`ollama list` でモデルを確認 |
+| 応答が遅い | より小さいモデルを使用（例: gemma3:4b） |
+| ポート8000が使用中 | `lsof -i:8000` でプロセスを確認して終了 |
+
+## 技術スタック
+
+- Backend: FastAPI, WebSocket, Ollama
+- Frontend: HTML5, CSS3, JavaScript
+- LLM: Ollama経由（Qwen, Gemma等）
+
+## ドキュメント
+
+- API仕様: `http://localhost:8000/docs`（起動後）
+- [CHANGELOG.md](CHANGELOG.md) - バージョン履歴
+
+## ライセンス
 
 MIT License
