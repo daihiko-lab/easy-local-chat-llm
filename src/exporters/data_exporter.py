@@ -458,6 +458,47 @@ class DataExporter:
         実験データをワイド形式CSVでエクスポート（統計分析用）
         1行 = 1参加者（1セッション）
         各質問（question_id）が列になる
+        
+        【出力される列】
+        1. 基本情報（16列）：
+           - experiment_id, session_id, participant_code, client_id
+           - condition_id, experiment_group, started_at, ended_at, duration_seconds
+           - total_messages, user_message_count, bot_message_count
+           - total_user_chars, total_user_words, avg_user_chars, avg_user_words
+        
+        2. ブランチ条件（実験設計による）：
+           - {step_id}_condition: ブランチID（例: "branch_empathy"）
+           - {step_id}_condition_label: ブランチラベル（例: "共感条件"）
+        
+        3. チャット情報（各チャットステップごと）：
+           - {step_id}_ai_model: 使用されたAIモデル
+           - {step_id}_bot_name: ボット名
+           - {step_id}_chat_duration_seconds: チャット時間（秒）
+        
+        4. 質問順序情報（ランダマイズされている場合）：
+           - {step_id}_question_order: 提示された質問IDのリスト（カンマ区切り）
+        
+        5. アンケート回答：
+           - 各question_idが列になる（panas_pre_1_strong, panas_post_1_strong, ...）
+        
+        6. AI評価結果：
+           - ai_eval_{評価項目}: 評価スコア
+        
+        【欠損値の扱い】
+        - 欠損値は空文字列として出力されます
+        - Rでの読み込み時は na.strings=c("", "NA") を指定してください
+        - 詳細は DATA_ANALYSIS_GUIDE.md を参照
+        
+        【使用例】
+        ```python
+        exporter = DataExporter()
+        csv_content = exporter.export_experiment_wide_format_csv(
+            experiment_id="exp_20251119_095620",
+            session_manager=session_manager,
+            message_store=message_store,
+            experiment_manager=experiment_manager
+        )
+        ```
         """
         # 実験に属する全セッションを取得
         all_sessions = session_manager.get_all_sessions()
@@ -488,6 +529,7 @@ class DataExporter:
         all_ai_eval_ids = OrderedDict()   # AI評価質問ID
         all_branch_fields = OrderedDict()  # ブランチ選択フィールド
         all_chat_fields = OrderedDict()  # チャットステップ情報
+        all_survey_steps = set()  # 質問順序情報が必要なステップID
         
         # チャットステップ情報を収集（実験フローから、再帰的に探索）
         def collect_chat_steps_from_dict(steps_dict, chat_steps_list):
@@ -524,9 +566,14 @@ class DataExporter:
             # ブランチ選択結果をassigned_conditionsから収集
             if hasattr(session, 'assigned_conditions') and session.assigned_conditions:
                 for branch_step_id, branch_id in session.assigned_conditions.items():
+                    # ブランチIDの列
                     field_name = f"{branch_step_id}_condition"
                     if field_name not in all_branch_fields:
                         all_branch_fields[field_name] = True
+                    # ブランチラベルの列も追加
+                    label_field = f"{branch_step_id}_condition_label"
+                    if label_field not in all_branch_fields:
+                        all_branch_fields[label_field] = True
             
             # 🆕 新形式: step_responsesからアンケート回答を収集
             if hasattr(session, 'step_responses') and session.step_responses:
@@ -536,12 +583,14 @@ class DataExporter:
                             if isinstance(client_data, dict):
                                 # アンケート回答
                                 if 'survey_responses' in client_data:
+                                    all_survey_steps.add(step_id)  # 質問順序情報が必要
                                     for response in client_data['survey_responses']:
                                         if isinstance(response, dict) and 'question_id' in response:
                                             if response['question_id'] not in all_question_ids:
                                                 all_question_ids[response['question_id']] = True
                                 # ランダマイザーの回答（randomizer_responses内）
                                 if 'randomizer_responses' in client_data:
+                                    all_survey_steps.add(step_id)  # 質問順序情報が必要
                                     for response in client_data['randomizer_responses']:
                                         if isinstance(response, dict) and 'question_id' in response:
                                             if response['question_id'] not in all_question_ids:
@@ -586,15 +635,21 @@ class DataExporter:
             'total_messages',
             'user_message_count',
             'bot_message_count',
+            'total_user_chars',      # 🆕 ユーザーメッセージの総文字数
+            'total_user_words',      # 🆕 ユーザーメッセージの総単語数
             'avg_user_chars',
             'avg_user_words'
         ]
         
-        # ブランチ選択列を追加
+        # ブランチ選択列を追加（IDとラベルの両方）
         headers.extend(list(all_branch_fields.keys()))
         
         # チャットステップ情報列を追加
         headers.extend(list(all_chat_fields.keys()))
+        
+        # 質問順序情報の列を追加
+        question_order_fields = [f"{step_id}_question_order" for step_id in sorted(all_survey_steps)]
+        headers.extend(question_order_fields)
         
         # サーベイ質問列を追加
         headers.extend(list(all_question_ids.keys()))
@@ -626,7 +681,8 @@ class DataExporter:
             
             if message_store:
                 messages = message_store.get_messages_by_session(session.session_id)
-                user_messages = [m for m in messages if m.message_type == 'user']
+                # 'user'と'message'の両方をユーザーメッセージとして扱う
+                user_messages = [m for m in messages if m.message_type in ['user', 'message']]
                 bot_messages = [m for m in messages if m.message_type == 'bot']
                 
                 user_msg_count = len(user_messages)
@@ -636,8 +692,8 @@ class DataExporter:
                     total_user_chars += msg.char_count
                     total_user_words += msg.word_count
             
-            avg_user_chars = f"{total_user_chars / user_msg_count:.2f}" if user_msg_count > 0 else '0'
-            avg_user_words = f"{total_user_words / user_msg_count:.2f}" if user_msg_count > 0 else '0'
+            avg_user_chars = f"{total_user_chars / user_msg_count:.2f}" if user_msg_count > 0 else ''
+            avg_user_words = f"{total_user_words / user_msg_count:.2f}" if user_msg_count > 0 else ''
             
             # client_idを取得（session.client_idを優先、なければparticipantsから）
             client_id = session.client_id if hasattr(session, 'client_id') and session.client_id else (session.participants[0] if session.participants else '')
@@ -656,6 +712,8 @@ class DataExporter:
                 session.total_messages,
                 user_msg_count,
                 bot_msg_count,
+                total_user_chars,      # 🆕 総文字数
+                total_user_words,      # 🆕 総単語数
                 avg_user_chars,
                 avg_user_words
             ]
@@ -699,14 +757,32 @@ class DataExporter:
                                 answer = json.dumps(answer, ensure_ascii=False)
                             survey_answers[response.question_id] = answer
             
-            # ブランチ選択結果を追加
+            # ブランチ選択結果を追加（IDとラベルの両方）
             branch_answers = {}
+            
+            # 実験フローからブランチラベルを取得するヘルパー関数
+            def get_branch_label_from_flow(branch_step_id, branch_id):
+                """実験フローから指定されたbranch_idのラベルを取得"""
+                if not experiment_flow_raw:
+                    return ''
+                for step_dict in experiment_flow_raw:
+                    if isinstance(step_dict, dict) and step_dict.get('step_id') == branch_step_id:
+                        if step_dict.get('step_type') == 'branch':
+                            branches = step_dict.get('branches', [])
+                            for branch in branches:
+                                if branch.get('branch_id') == branch_id:
+                                    return branch.get('condition_label', '')
+                return ''
             
             # 新形式: assigned_conditionsから取得（優先）
             if hasattr(session, 'assigned_conditions') and session.assigned_conditions:
                 for branch_step_id, branch_id in session.assigned_conditions.items():
+                    # ブランチID
                     field_name = f"{branch_step_id}_condition"
                     branch_answers[field_name] = branch_id
+                    # ブランチラベル（実験フローから取得）
+                    label_field = f"{branch_step_id}_condition_label"
+                    branch_answers[label_field] = get_branch_label_from_flow(branch_step_id, branch_id)
             
             # 旧形式: step_responsesから取得（後方互換性）
             if hasattr(session, 'step_responses') and session.step_responses:
@@ -779,6 +855,23 @@ class DataExporter:
             for field_name in all_chat_fields.keys():
                 row_data.append(chat_info.get(field_name, ''))
             
+            # 質問順序情報を追加
+            question_order_data = {}
+            if hasattr(session, 'step_responses') and session.step_responses:
+                for step_id, step_data in session.step_responses.items():
+                    if isinstance(step_data, dict):
+                        for client_id_resp, client_data in step_data.items():
+                            if isinstance(client_data, dict):
+                                # question_orderフィールドがある場合
+                                if 'question_order' in client_data:
+                                    order_list = client_data['question_order']
+                                    if isinstance(order_list, list):
+                                        # リストをカンマ区切りの文字列に変換
+                                        question_order_data[f"{step_id}_question_order"] = ','.join(order_list)
+            
+            for field_name in question_order_fields:
+                row_data.append(question_order_data.get(field_name, ''))
+            
             # サーベイ回答を追加
             for q_id in all_question_ids.keys():
                 row_data.append(survey_answers.get(q_id, ''))
@@ -798,8 +891,10 @@ class DataExporter:
             for eval_id in all_ai_eval_ids.keys():
                 row_data.append(ai_eval_answers.get(eval_id, ''))
             
-            # 空文字列をNAに置き換え（統計分析用）
-            row_data = ['NA' if (cell == '' or cell is None) else cell for cell in row_data]
+            # 欠損値処理: Rで正しく認識されるように空文字列はそのまま残す
+            # Rでの読み込み時に na.strings=c("", "NA") を指定すれば欠損値として扱われる
+            # Noneは空文字列に変換
+            row_data = ['' if cell is None else cell for cell in row_data]
             
             writer.writerow(row_data)
         
