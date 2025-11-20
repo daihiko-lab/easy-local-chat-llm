@@ -884,13 +884,13 @@ async function saveStepEdit() {
                 const botModelSelect = document.getElementById('edit_bot_model');
                 step.bot_model = botModelSelect ? botModelSelect.value.trim() : '';
                 step.system_prompt = getInputValueOrFallback('edit_system_prompt', step.system_prompt || '');
-                const temperature = getNumberValueOrFallback('edit_temperature', 0.7);
+                const temperature = getNumberValueOrFallback('edit_temperature', step.temperature !== undefined ? step.temperature : 0.7);
                 step.temperature = temperature !== null ? temperature : 0.7;
-                const top_p = getNumberValueOrFallback('edit_top_p', 0.9);
+                const top_p = getNumberValueOrFallback('edit_top_p', step.top_p !== undefined ? step.top_p : 0.9);
                 step.top_p = top_p !== null ? top_p : 0.9;
-                const top_k = getNumberValueOrFallback('edit_top_k', 40);
+                const top_k = getNumberValueOrFallback('edit_top_k', step.top_k !== undefined ? step.top_k : 40);
                 step.top_k = top_k !== null ? top_k : 40;
-                const repeat_penalty = getNumberValueOrFallback('edit_repeat_penalty', 1.1);
+                const repeat_penalty = getNumberValueOrFallback('edit_repeat_penalty', step.repeat_penalty !== undefined ? step.repeat_penalty : 1.1);
                 step.repeat_penalty = repeat_penalty !== null ? repeat_penalty : 1.1;
                 const num_predict = getNumberValueOrFallback('edit_num_predict', null);
                 step.num_predict = num_predict;
