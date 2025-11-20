@@ -22,7 +22,7 @@ function getStepTypeLabel(stepType) {
 // Render flow as blocks
 function renderFlowBlocks(steps = null, container = null) {
     // Allow passing custom steps and container (for full-page editor)
-    const flowSteps = steps || experimentFlowSteps;
+    const flowSteps = steps || window.experimentFlowSteps;
     const targetContainer = container || document.getElementById('flowBlocksContainer');
     
     if (!targetContainer) {
@@ -69,7 +69,7 @@ function renderNormalBlock(step, index) {
                 <span style="flex: 1;"></span>
                 <div style="display: flex; gap: 6px; opacity: 0.6;">
                     ${index > 0 ? `<button onclick="moveStepUp(${index}); event.stopPropagation();" style="padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #6b7280; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">↑</button>` : ''}
-                    ${index < experimentFlowSteps.length - 1 ? `<button onclick="moveStepDown(${index}); event.stopPropagation();" style="padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #6b7280; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">↓</button>` : ''}
+                    ${index < (window.experimentFlowSteps || []).length - 1 ? `<button onclick="moveStepDown(${index}); event.stopPropagation();" style="padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #6b7280; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">↓</button>` : ''}
                     <button onclick="editStep(${index}); event.stopPropagation();" style="padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #6b7280; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">Edit</button>
                     <button onclick="deleteStep(${index}); event.stopPropagation();" style="padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid #d1d5db; border-radius: 4px; color: #ef4444; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;">×</button>
                 </div>
@@ -374,7 +374,7 @@ function toggleBranchCollapse(branchId) {
 
 // Add a new branch path to a branch block
 function addBranchPath(stepIndex) {
-    const step = experimentFlowSteps[stepIndex];
+    const step = window.experimentFlowSteps[stepIndex];
     if (!step.branches) {
         step.branches = [];
     }
@@ -410,14 +410,14 @@ function addBranchPath(stepIndex) {
 function deleteBranchPath(stepIndex, branchIndex) {
     if (!confirm('Delete this branch path and all its steps?')) return;
     
-    const step = experimentFlowSteps[stepIndex];
+    const step = window.experimentFlowSteps[stepIndex];
     step.branches.splice(branchIndex, 1);
     renderFlowBlocks();
 }
 
 // Edit a branch path (label and condition)
 function editBranchPath(stepIndex, branchIndex) {
-    const step = experimentFlowSteps[stepIndex];
+    const step = window.experimentFlowSteps[stepIndex];
     const branch = step.branches[branchIndex];
     
     // Edit branch_id (data code)
@@ -469,7 +469,7 @@ function addStepToBranchAt(stepType) {
     if (!window.currentBranchContext) return;
     
     const { stepIndex, branchIndex } = window.currentBranchContext;
-    const step = experimentFlowSteps[stepIndex];
+    const step = window.experimentFlowSteps[stepIndex];
     const branch = step.branches[branchIndex];
     
     const newStep = createNewStep(stepType);
@@ -582,7 +582,7 @@ function createNewStep(stepType) {
 
 // Edit a step within a branch
 function editBranchStep(stepIndex, branchIndex, stepIdx) {
-    const step = experimentFlowSteps[stepIndex];
+    const step = window.experimentFlowSteps[stepIndex];
     const branch = step.branches[branchIndex];
     const branchStep = branch.steps[stepIdx];
     
@@ -622,7 +622,7 @@ async function saveBranchStepEdit() {
 function deleteBranchStep(stepIndex, branchIndex, stepIdx) {
     if (!confirm('Delete this step?')) return;
     
-    const step = experimentFlowSteps[stepIndex];
+    const step = window.experimentFlowSteps[stepIndex];
     const branch = step.branches[branchIndex];
     branch.steps.splice(stepIdx, 1);
     renderFlowBlocks();

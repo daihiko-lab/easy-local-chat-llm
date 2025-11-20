@@ -214,14 +214,41 @@ class BotManager:
             if num_batch is not None:
                 options['num_batch'] = num_batch
             
+            # モニタリング情報を出力
+            model = self.get_model(session_id)
+            system_prompt = self.get_system_prompt(session_id)
+            system_prompt_preview = system_prompt[:80] + "..." if len(system_prompt) > 80 else system_prompt
+            
+            print("\n" + "=" * 70)
+            print("🤖 OLLAMA MODEL INVOCATION")
+            print("=" * 70)
+            print(f"Session ID    : {session_id[:20]}...")
+            print(f"Model         : {model}")
+            print(f"System Prompt : {system_prompt_preview}")
+            print(f"\nParameters:")
+            print(f"  temperature      : {options.get('temperature', 'N/A')}")
+            print(f"  top_p            : {options.get('top_p', 'N/A')}")
+            print(f"  top_k            : {options.get('top_k', 'N/A')}")
+            print(f"  repeat_penalty   : {options.get('repeat_penalty', 'N/A')}")
+            print(f"  num_predict      : {options.get('num_predict', 'Default (unlimited)')}")
+            print(f"  num_thread       : {options.get('num_thread', 'Default (8)')}")
+            print(f"  num_ctx          : {options.get('num_ctx', 'Default (8192)')}")
+            print(f"  num_gpu          : {options.get('num_gpu', 'Default (-1, all)')}")
+            print(f"  num_batch        : {options.get('num_batch', 'Default (512)')}")
+            print(f"\nConversation History: {len(messages) - 1} messages")
+            print("=" * 70 + "\n")
+            
             response = await asyncio.to_thread(
                 ollama.chat,
-                model=self.get_model(session_id),
+                model=model,
                 messages=messages,
                 options=options
             )
             
             bot_message = response['message']['content']
+            
+            # 応答の統計情報を出力
+            print(f"✅ Response generated: {len(bot_message)} chars\n")
             
             # ボットの応答を履歴に追加
             self.add_to_history(session_id, "assistant", bot_message)
@@ -262,12 +289,66 @@ class BotManager:
             ]
             messages.extend(history)
             
+            # オプションを構築
+            options = {
+                'temperature': self.get_temperature(session_id),
+                'top_p': self.get_top_p(session_id),
+                'top_k': self.get_top_k(session_id),
+                'repeat_penalty': self.get_repeat_penalty(session_id)
+            }
+            
+            # オプションパラメータを追加（Noneでない場合のみ）
+            num_predict = self.get_num_predict(session_id)
+            if num_predict is not None:
+                options['num_predict'] = num_predict
+            
+            num_thread = self.get_num_thread(session_id)
+            if num_thread is not None:
+                options['num_thread'] = num_thread
+            
+            num_ctx = self.get_num_ctx(session_id)
+            if num_ctx is not None:
+                options['num_ctx'] = num_ctx
+            
+            num_gpu = self.get_num_gpu(session_id)
+            if num_gpu is not None:
+                options['num_gpu'] = num_gpu
+            
+            num_batch = self.get_num_batch(session_id)
+            if num_batch is not None:
+                options['num_batch'] = num_batch
+            
+            # モニタリング情報を出力
+            model = self.get_model(session_id)
+            system_prompt = self.get_system_prompt(session_id)
+            system_prompt_preview = system_prompt[:80] + "..." if len(system_prompt) > 80 else system_prompt
+            
+            print("\n" + "=" * 70)
+            print("🤖 OLLAMA MODEL INVOCATION (STREAMING)")
+            print("=" * 70)
+            print(f"Session ID    : {session_id[:20]}...")
+            print(f"Model         : {model}")
+            print(f"System Prompt : {system_prompt_preview}")
+            print(f"\nParameters:")
+            print(f"  temperature      : {options.get('temperature', 'N/A')}")
+            print(f"  top_p            : {options.get('top_p', 'N/A')}")
+            print(f"  top_k            : {options.get('top_k', 'N/A')}")
+            print(f"  repeat_penalty   : {options.get('repeat_penalty', 'N/A')}")
+            print(f"  num_predict      : {options.get('num_predict', 'Default (unlimited)')}")
+            print(f"  num_thread       : {options.get('num_thread', 'Default (8)')}")
+            print(f"  num_ctx          : {options.get('num_ctx', 'Default (8192)')}")
+            print(f"  num_gpu          : {options.get('num_gpu', 'Default (-1, all)')}")
+            print(f"  num_batch        : {options.get('num_batch', 'Default (512)')}")
+            print(f"\nConversation History: {len(messages) - 1} messages")
+            print("=" * 70 + "\n")
+            
             # ストリーミング応答を生成
             full_response = ""
             stream = await asyncio.to_thread(
                 ollama.chat,
-                model=self.get_model(session_id),
+                model=model,
                 messages=messages,
+                options=options,
                 stream=True
             )
             
@@ -276,6 +357,9 @@ class BotManager:
                     content = chunk['message']['content']
                     full_response += content
                     yield content
+            
+            # 応答の統計情報を出力
+            print(f"✅ Streaming response completed: {len(full_response)} chars\n")
             
             # 完全な応答を履歴に追加
             self.add_to_history(session_id, "assistant", full_response)

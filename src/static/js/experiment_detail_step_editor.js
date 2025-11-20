@@ -26,7 +26,7 @@ function getNumberValueOrFallback(elementId, fallback = null) {
         console.warn(`[StepEditor] Numeric input #${elementId} not found, using fallback.`);
         return fallback;
     }
-    const value = parseInt(el.value, 10);
+    const value = parseFloat(el.value);
     return Number.isNaN(value) ? fallback : value;
 }
 
@@ -843,9 +843,9 @@ async function saveStepEdit() {
     let step;
     if (window.currentEditingBranchContext) {
         const { stepIndex, branchIndex, stepIdx } = window.currentEditingBranchContext;
-        step = experimentFlowSteps[stepIndex].branches[branchIndex].steps[stepIdx];
+        step = window.experimentFlowSteps[stepIndex].branches[branchIndex].steps[stepIdx];
     } else {
-        step = experimentFlowSteps[currentEditingStepIndex];
+        step = window.experimentFlowSteps[currentEditingStepIndex];
     }
     
     const stepType = step.step_type;
