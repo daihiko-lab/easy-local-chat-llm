@@ -1,6 +1,40 @@
 // Step Editor Functions for Experiment Detail Page
 // Survey question management and step editing
 
+// ========== Helper functions for cross-context variable access ==========
+// These helpers support both experiment_detail.html and experiment_flow_editor.html contexts
+
+function getFlowSteps() {
+    return window.experimentFlowSteps || (typeof experimentFlowSteps !== 'undefined' ? experimentFlowSteps : []);
+}
+
+function setFlowSteps(steps) {
+    if (typeof window.experimentFlowSteps !== 'undefined') {
+        window.experimentFlowSteps = steps;
+    }
+    if (typeof window.currentFlow !== 'undefined') {
+        window.currentFlow = steps;
+    }
+    if (typeof experimentFlowSteps !== 'undefined') {
+        experimentFlowSteps = steps;
+    }
+}
+
+function getCurrentEditingIndex() {
+    return window.currentEditingStepIndex ?? (typeof currentEditingStepIndex !== 'undefined' ? currentEditingStepIndex : null);
+}
+
+function setCurrentEditingIndex(index) {
+    if (typeof window.currentEditingStepIndex !== 'undefined' || window.experimentId) {
+        window.currentEditingStepIndex = index;
+    }
+    if (typeof currentEditingStepIndex !== 'undefined') {
+        currentEditingStepIndex = index;
+    }
+}
+
+// ========== Form value helpers ==========
+
 function getInputValueOrFallback(elementId, fallback = '') {
     const el = document.getElementById(elementId);
     if (!el) {
@@ -31,8 +65,9 @@ function getNumberValueOrFallback(elementId, fallback = null) {
 }
 
 function editStep(index) {
-    currentEditingStepIndex = index;
-    const step = experimentFlowSteps[index];
+    setCurrentEditingIndex(index);
+    const flowSteps = getFlowSteps();
+    const step = flowSteps[index];
     
     const modalTitle = document.getElementById('stepEditModalTitle');
     const stepEditForm = document.getElementById('stepEditForm');
@@ -58,7 +93,7 @@ function editStep(index) {
 
 function closeStepEditModal() {
     document.getElementById('stepEditModal').style.display = 'none';
-    currentEditingStepIndex = null;
+    setCurrentEditingIndex(null);
 }
 
 function generateStepEditForm(step) {
@@ -699,8 +734,10 @@ async function loadModelsForEvaluationStep(currentModel) {
 }
 
 function saveSurveyFormData() {
-    const step = experimentFlowSteps[currentEditingStepIndex];
-    if (!step.survey_questions) return;
+    const flowSteps = getFlowSteps();
+    const editIndex = getCurrentEditingIndex();
+    const step = flowSteps[editIndex];
+    if (!step || !step.survey_questions) return;
     
     const questions = step.survey_questions;
     for (let i = 0; i < questions.length; i++) {
@@ -741,7 +778,9 @@ function saveSurveyFormData() {
 function addSurveyQuestion() {
     saveSurveyFormData();
     
-    const step = experimentFlowSteps[currentEditingStepIndex];
+    const flowSteps = getFlowSteps();
+    const editIndex = getCurrentEditingIndex();
+    const step = flowSteps[editIndex];
     if (!step.survey_questions) {
         step.survey_questions = [];
     }
@@ -766,13 +805,17 @@ function removeSurveyQuestion(index) {
     
     saveSurveyFormData();
     
-    const step = experimentFlowSteps[currentEditingStepIndex];
+    const flowSteps = getFlowSteps();
+    const editIndex = getCurrentEditingIndex();
+    const step = flowSteps[editIndex];
     step.survey_questions.splice(index, 1);
     document.getElementById('stepEditForm').innerHTML = generateStepEditForm(step);
 }
 
 function updateQuestionOptions(index) {
-    const step = experimentFlowSteps[currentEditingStepIndex];
+    const flowSteps = getFlowSteps();
+    const editIndex = getCurrentEditingIndex();
+    const step = flowSteps[editIndex];
     const question = step.survey_questions[index];
     
     const textEl = document.getElementById(`q_text_${index}`);
@@ -841,11 +884,14 @@ function updateQuestionOptions(index) {
 async function saveStepEdit() {
     // Check if editing a step within a branch
     let step;
+    const flowSteps = getFlowSteps();
+    const editIndex = getCurrentEditingIndex();
+    
     if (window.currentEditingBranchContext) {
         const { stepIndex, branchIndex, stepIdx } = window.currentEditingBranchContext;
-        step = window.experimentFlowSteps[stepIndex].branches[branchIndex].steps[stepIdx];
+        step = flowSteps[stepIndex].branches[branchIndex].steps[stepIdx];
     } else {
-        step = window.experimentFlowSteps[currentEditingStepIndex];
+        step = flowSteps[editIndex];
     }
     
     const stepType = step.step_type;
@@ -1006,13 +1052,24 @@ async function saveStepEdit() {
 }
 
 async function autoSaveFlow() {
+    // Support both window-scoped and local variables for different page contexts
+    const expId = window.experimentId || (typeof experimentId !== 'undefined' ? experimentId : null);
+    const isEditingFlow = window.isEditingExperimentFlow || (typeof isEditingExperimentFlow !== 'undefined' ? isEditingExperimentFlow : false);
+    const flowSteps = window.experimentFlowSteps || (typeof experimentFlowSteps !== 'undefined' ? experimentFlowSteps : []);
+    const editingConditionId = window.currentEditingFlowConditionId || (typeof currentEditingFlowConditionId !== 'undefined' ? currentEditingFlowConditionId : null);
+    
+    if (!expId) {
+        console.error('Auto-save failed: experimentId not found');
+        return;
+    }
+    
     try {
-        if (isEditingExperimentFlow) {
-            const saveResponse = await fetch(`/api/experiments/${experimentId}/flow`, {
+        if (isEditingFlow) {
+            const saveResponse = await fetch(`/api/experiments/${expId}/flow`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ experiment_flow: experimentFlowSteps })
+                body: JSON.stringify({ experiment_flow: flowSteps })
             });
             
             if (saveResponse.ok) {
@@ -1021,15 +1078,15 @@ async function autoSaveFlow() {
                 throw new Error('Server returned error: ' + saveResponse.status);
             }
             
-        } else if (currentEditingFlowConditionId) {
-            const response = await fetch(`/api/conditions/${currentEditingFlowConditionId}`, {
+        } else if (editingConditionId) {
+            const response = await fetch(`/api/conditions/${editingConditionId}`, {
                 credentials: 'include'
             });
             const condition = await response.json();
             
-            condition.experiment_flow = experimentFlowSteps;
+            condition.experiment_flow = flowSteps;
             
-            const saveResponse = await fetch(`/api/experiments/${experimentId}/conditions`, {
+            const saveResponse = await fetch(`/api/experiments/${expId}/conditions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
@@ -1082,7 +1139,9 @@ function saveEvaluationQuestionsData() {
 function addEvaluationQuestion() {
     saveEvaluationQuestionsData();
     
-    const step = experimentFlowSteps[currentEditingStepIndex];
+    const flowSteps = getFlowSteps();
+    const editIndex = getCurrentEditingIndex();
+    const step = flowSteps[editIndex];
     if (!step.evaluation_questions) {
         step.evaluation_questions = [];
     }
@@ -1108,7 +1167,9 @@ function removeEvaluationQuestion(index) {
     // Save current data first
     const currentQuestions = saveEvaluationQuestionsData();
     
-    const step = experimentFlowSteps[currentEditingStepIndex];
+    const flowSteps = getFlowSteps();
+    const editIndex = getCurrentEditingIndex();
+    const step = flowSteps[editIndex];
     step.evaluation_questions = currentQuestions;
     step.evaluation_questions.splice(index, 1);
     

@@ -374,7 +374,8 @@ function toggleBranchCollapse(branchId) {
 
 // Add a new branch path to a branch block
 function addBranchPath(stepIndex) {
-    const step = window.experimentFlowSteps[stepIndex];
+    const flowSteps = window.experimentFlowSteps || window.currentFlow || [];
+    const step = flowSteps[stepIndex];
     if (!step.branches) {
         step.branches = [];
     }
@@ -410,14 +411,16 @@ function addBranchPath(stepIndex) {
 function deleteBranchPath(stepIndex, branchIndex) {
     if (!confirm('Delete this branch path and all its steps?')) return;
     
-    const step = window.experimentFlowSteps[stepIndex];
+    const flowSteps = window.experimentFlowSteps || window.currentFlow || [];
+    const step = flowSteps[stepIndex];
     step.branches.splice(branchIndex, 1);
     renderFlowBlocks();
 }
 
 // Edit a branch path (label and condition)
 function editBranchPath(stepIndex, branchIndex) {
-    const step = window.experimentFlowSteps[stepIndex];
+    const flowSteps = window.experimentFlowSteps || window.currentFlow || [];
+    const step = flowSteps[stepIndex];
     const branch = step.branches[branchIndex];
     
     // Edit branch_id (data code)
@@ -469,7 +472,8 @@ function addStepToBranchAt(stepType) {
     if (!window.currentBranchContext) return;
     
     const { stepIndex, branchIndex } = window.currentBranchContext;
-    const step = window.experimentFlowSteps[stepIndex];
+    const flowSteps = window.experimentFlowSteps || window.currentFlow || [];
+    const step = flowSteps[stepIndex];
     const branch = step.branches[branchIndex];
     
     const newStep = createNewStep(stepType);
@@ -582,12 +586,33 @@ function createNewStep(stepType) {
 
 // Edit a step within a branch
 function editBranchStep(stepIndex, branchIndex, stepIdx) {
-    const step = window.experimentFlowSteps[stepIndex];
+    const flowSteps = window.experimentFlowSteps || window.currentFlow || [];
+    const step = flowSteps[stepIndex];
+    
+    if (!step || !step.branches || !step.branches[branchIndex]) {
+        console.error('Branch step not found:', { stepIndex, branchIndex, stepIdx });
+        alert('Error: Branch step not found. Please refresh the page.');
+        return;
+    }
+    
     const branch = step.branches[branchIndex];
     const branchStep = branch.steps[stepIdx];
     
+    if (!branchStep) {
+        console.error('Branch step not found at index:', stepIdx);
+        alert('Error: Step not found in branch. Please refresh the page.');
+        return;
+    }
+    
     window.currentEditingBranchContext = { stepIndex, branchIndex, stepIdx };
-    currentEditingStepIndex = null; // Clear normal editing context
+    // Clear normal editing context (support both window-scoped and local)
+    window.currentEditingStepIndex = null;
+    if (typeof currentEditingStepIndex !== 'undefined') {
+        currentEditingStepIndex = null;
+    }
+    if (typeof setCurrentEditingIndex === 'function') {
+        setCurrentEditingIndex(null);
+    }
     
     // Use existing modal elements
     const modalTitle = document.getElementById('stepEditModalTitle');
@@ -600,6 +625,7 @@ function editBranchStep(stepIndex, branchIndex, stepIdx) {
         return;
     }
     
+    console.log('[Flow] Editing branch step:', branchStep);
     modalTitle.textContent = `✏️ Edit ${getStepTypeLabel(branchStep.step_type)} Step (in Branch)`;
     stepEditForm.innerHTML = generateStepEditForm(branchStep);
     stepEditModal.style.display = 'block';
@@ -622,7 +648,8 @@ async function saveBranchStepEdit() {
 function deleteBranchStep(stepIndex, branchIndex, stepIdx) {
     if (!confirm('Delete this step?')) return;
     
-    const step = window.experimentFlowSteps[stepIndex];
+    const flowSteps = window.experimentFlowSteps || window.currentFlow || [];
+    const step = flowSteps[stepIndex];
     const branch = step.branches[branchIndex];
     branch.steps.splice(stepIdx, 1);
     renderFlowBlocks();
