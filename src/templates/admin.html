@@ -460,21 +460,18 @@
         
         async function loadExperiments() {
             try {
-                const [experimentsResponse, conditionsResponse, sessionsResponse] = await Promise.all([
+                const [experimentsResponse, conditionsResponse] = await Promise.all([
                     fetch('/api/experiments'),
-                    fetch('/api/conditions'),
-                    fetch('/api/sessions')
+                    fetch('/api/conditions')
                 ]);
                 
-                if (!experimentsResponse.ok || !conditionsResponse.ok || !sessionsResponse.ok) throw new Error('Failed to load data');
+                if (!experimentsResponse.ok || !conditionsResponse.ok) throw new Error('Failed to load data');
                 
                 const experimentsData = await experimentsResponse.json();
                 const conditionsData = await conditionsResponse.json();
-                const sessionsData = await sessionsResponse.json();
                 
                 const experiments = experimentsData.experiments || [];
                 const conditions = conditionsData.conditions || [];
-                const sessions = sessionsData.sessions || [];
                 
                 // Active と Completed に分ける
                 const activeExperiments = experiments.filter(e => ['planning', 'active', 'paused'].includes(e.status));
@@ -497,14 +494,14 @@
                         </div>
                     `;
                 } else {
-                    activeContainer.innerHTML = activeExperiments.map(exp => renderExperimentCard(exp, sessions)).join('');
+                    activeContainer.innerHTML = activeExperiments.map(exp => renderExperimentCard(exp)).join('');
                 }
                 
                 // Completed Experiments
                 if (completedExperiments.length === 0) {
                     completedContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">No completed experiments</div>';
                 } else {
-                    completedContainer.innerHTML = completedExperiments.map(exp => renderExperimentCard(exp, sessions)).join('');
+                    completedContainer.innerHTML = completedExperiments.map(exp => renderExperimentCard(exp)).join('');
                 }
                 
             } catch (error) {
@@ -513,7 +510,7 @@
             }
         }
         
-        function renderExperimentCard(exp, allSessions) {
+        function renderExperimentCard(exp) {
             const statusColors = {
                 'planning': '#95a5a6',
                 'active': '#27ae60',
@@ -529,11 +526,6 @@
             
             // 実験フローのステップ数をカウント
             const flowStepsCount = (exp.experiment_flow && exp.experiment_flow.length) || 0;
-            
-            // この実験に属するセッションを取得
-            const experimentSessions = allSessions.filter(s => s.experiment_id === exp.experiment_id);
-            const activeSessions = experimentSessions.filter(s => s.status === 'active');
-            const endedSessions = experimentSessions.filter(s => s.status === 'ended');
             
             return `
                 <div style="padding: 20px; margin-bottom: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid ${statusColors[exp.status]};">
@@ -557,6 +549,9 @@
                             </div>` : ''}
                         </div>
                         <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                            ${exp.status === 'planning' ? `<button class="btn btn-small" onclick="startExperiment('${exp.experiment_id}')" style="background: #27ae60; color: white;">▶ Start</button>` : ''}
+                            ${exp.status === 'active' ? `<button class="btn btn-small" onclick="pauseExperiment('${exp.experiment_id}')" style="background: #f39c12; color: white;">⏸ Pause</button>` : ''}
+                            ${exp.status === 'paused' ? `<button class="btn btn-small" onclick="resumeExperiment('${exp.experiment_id}')" style="background: #27ae60; color: white;">▶ Resume</button>` : ''}
                             <button class="btn btn-small" onclick="goToExperimentDetail('${exp.experiment_id}')" style="background: #3498db; color: white;">🔧 Manage</button>
                             ${exp.status === 'completed' ? `<button class="btn btn-small" onclick="deleteExperiment('${exp.experiment_id}', '${exp.name}')" style="background: #e74c3c; color: white;">🗑 Delete</button>` : ''}
                         </div>
@@ -566,10 +561,6 @@
                         <div>
                             <div style="font-size: 0.8em; color: #999;">Participants</div>
                             <div style="font-size: 1.3em; font-weight: 600; color: #333;">${exp.total_participants || 0}</div>
-                        </div>
-                        <div>
-                            <div style="font-size: 0.8em; color: #999;">Total Sessions</div>
-                            <div style="font-size: 1.3em; font-weight: 600; color: #333;">${experimentSessions.length}</div>
                         </div>
                         <div>
                             <div style="font-size: 0.8em; color: #999;">Created</div>
@@ -582,48 +573,6 @@
                         </div>
                         ` : ''}
                     </div>
-                    
-                    ${experimentSessions.length > 0 ? `
-                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
-                        <h4 style="margin: 0 0 10px 0; font-size: 1em; color: #555; cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center;" onclick="toggleExperimentSessions('${exp.experiment_id}')">
-                            <span>
-                                <span id="sessions-toggle-${exp.experiment_id}">▼</span> Sessions (${experimentSessions.length})
-                                <span style="color: #999; font-size: 0.9em; margin-left: 10px;">Active: ${activeSessions.length} | Ended: ${endedSessions.length}</span>
-                            </span>
-                        </h4>
-                        <div id="sessions-content-${exp.experiment_id}" style="display: block;">
-                            ${activeSessions.length > 0 ? `
-                            <div style="margin-bottom: 10px;">
-                                <div style="font-size: 0.9em; color: #27ae60; font-weight: 600; margin-bottom: 5px;">● Active (${activeSessions.length})</div>
-                                ${activeSessions.map(s => `
-                                    <div style="padding: 8px; margin-bottom: 5px; background: white; border-radius: 4px; font-size: 0.85em; display: flex; justify-content: space-between; align-items: center;">
-                                        <div>
-                                            <span style="font-family: monospace; color: #333;">${s.session_id.substring(0, 12)}...</span>
-                                            <span style="color: #999; margin-left: 8px;">| ${s.participants.length} participant(s)</span>
-                                        </div>
-                                        <button class="btn btn-small" onclick="viewSession('${s.session_id}')" style="background: #3498db; color: white; font-size: 0.8em; padding: 4px 8px;">View</button>
-                                    </div>
-                                `).join('')}
-                            </div>` : ''}
-                            ${endedSessions.length > 0 ? `
-                            <div>
-                                <div style="font-size: 0.9em; color: #999; font-weight: 600; margin-bottom: 5px;">● Ended (${endedSessions.length})</div>
-                                ${endedSessions.slice(0, 3).map(s => `
-                                    <div style="padding: 8px; margin-bottom: 5px; background: white; border-radius: 4px; font-size: 0.85em; display: flex; justify-content: space-between; align-items: center;">
-                                        <div>
-                                            <span style="font-family: monospace; color: #666;">${s.session_id.substring(0, 12)}...</span>
-                                            <span style="color: #999; margin-left: 8px;">| ${s.total_messages} msg(s)</span>
-                                        </div>
-                                        <div style="display: flex; gap: 4px;">
-                                            <button class="btn btn-small" onclick="exportSession('${s.session_id}', 'json')" style="font-size: 0.8em; padding: 4px 8px;">JSON</button>
-                                            <button class="btn btn-small" onclick="exportSession('${s.session_id}', 'csv')" style="font-size: 0.8em; padding: 4px 8px;">CSV</button>
-                                        </div>
-                                    </div>
-                                `).join('')}
-                                ${endedSessions.length > 3 ? `<div style="text-align: center; color: #999; font-size: 0.85em; margin-top: 5px;">... and ${endedSessions.length - 3} more (view in "🔧 Manage")</div>` : ''}
-                            </div>` : ''}
-                        </div>
-                    </div>` : ''}
                 </div>
             `;
         }
@@ -641,18 +590,6 @@
             }
         }
         
-        function toggleExperimentSessions(experimentId) {
-            const content = document.getElementById(`sessions-content-${experimentId}`);
-            const toggle = document.getElementById(`sessions-toggle-${experimentId}`);
-            
-            if (content.style.display === 'none') {
-                content.style.display = 'block';
-                toggle.textContent = '▼';
-            } else {
-                content.style.display = 'none';
-                toggle.textContent = '▶';
-            }
-        }
         
         async function createNewExperiment() {
             const name = document.getElementById('expName').value.trim();
@@ -661,6 +598,12 @@
             
             if (!name) {
                 alert('Please enter experiment name');
+                return;
+            }
+            
+            // 英語のみのバリデーション
+            if (!/^[a-zA-Z0-9 _\-\.]+$/.test(name)) {
+                alert('Experiment name must contain only English letters, numbers, spaces, underscores, hyphens, and dots.\n\nExample: Study 2025 - Empathy Conditions');
                 return;
             }
 
@@ -700,6 +643,36 @@
                 
             } catch (error) {
                 showError('Failed to start experiment: ' + error.message);
+            }
+        }
+        
+        async function pauseExperiment(experimentId) {
+            if (!confirm('Pause this experiment?\nNew participants will not be able to join until resumed.')) return;
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/pause`, { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to pause experiment');
+                
+                alert('⏸ Experiment paused!');
+                loadExperiments();
+                
+            } catch (error) {
+                showError('Failed to pause experiment: ' + error.message);
+            }
+        }
+        
+        async function resumeExperiment(experimentId) {
+            if (!confirm('Resume this experiment?')) return;
+            
+            try {
+                const response = await fetch(`/api/experiments/${experimentId}/resume`, { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to resume experiment');
+                
+                alert('▶ Experiment resumed!');
+                loadExperiments();
+                
+            } catch (error) {
+                showError('Failed to resume experiment: ' + error.message);
             }
         }
         

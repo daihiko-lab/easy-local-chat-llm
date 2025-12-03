@@ -1,7 +1,8 @@
 import csv
 import json
 import io
-from typing import List, Dict, Set, Optional, Any
+import zipfile
+from typing import List, Dict, Set, Optional, Any, Tuple
 from datetime import datetime
 from ..models.message import Message
 from ..models.session import Session
@@ -10,12 +11,32 @@ from ..managers.message_store import MessageStore
 from ..managers.experiment_manager import ExperimentManager
 from collections import OrderedDict
 
+# UTF-8 BOM（Excelで日本語を正しく認識させるため）
+UTF8_BOM = '\ufeff'
+
+# 欠損値の表現オプション
+MISSING_VALUE_OPTIONS = {
+    'blank': '',      # 空文字列
+    'NA': 'NA',       # NA文字列
+    'dot': '.',       # ピリオド（SAS/Stata形式）
+}
+
 
 class DataExporter:
     """データエクスポートクラス - メモリ上で直接データを生成"""
     
     def __init__(self):
         pass  # ファイル保存しないのでディレクトリ不要
+    
+    def _add_bom_if_excel(self, content: str, excel_format: bool = False) -> str:
+        """Excel形式の場合はBOMを追加"""
+        if excel_format:
+            return UTF8_BOM + content
+        return content
+    
+    def _get_missing_value(self, missing_value_style: str = 'blank') -> str:
+        """欠損値の表現を取得"""
+        return MISSING_VALUE_OPTIONS.get(missing_value_style, '')
     
     def export_messages_to_csv(self, session_id: str, message_store: MessageStore) -> str:
         """メッセージをCSV形式でエクスポート（文字列として返す）"""
@@ -237,10 +258,13 @@ class DataExporter:
         # データ行
         for client_id, responses in session.survey_responses.items():
             for response in responses:
-                # 回答が配列の場合はJSON文字列に変換
+                # 回答が配列の場合はJSON文字列に変換、文字列の場合は改行を置換
                 answer = response.answer
                 if isinstance(answer, list):
                     answer = json.dumps(answer, ensure_ascii=False)
+                elif isinstance(answer, str):
+                    # 改行をスペースに置換（CSVの行分割を防ぐ）
+                    answer = answer.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
                 
                 writer.writerow([
                     session_id,
@@ -300,10 +324,13 @@ class DataExporter:
         for session in exp_sessions:
             for client_id, responses in session.survey_responses.items():
                 for response in responses:
-                    # 回答が配列の場合はJSON文字列に変換
+                    # 回答が配列の場合はJSON文字列に変換、文字列の場合は改行を置換
                     answer = response.answer
                     if isinstance(answer, list):
                         answer = json.dumps(answer, ensure_ascii=False)
+                    elif isinstance(answer, str):
+                        # 改行をスペースに置換（CSVの行分割を防ぐ）
+                        answer = answer.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
                     
                     writer.writerow([
                         experiment_id,
@@ -453,7 +480,9 @@ class DataExporter:
     def export_experiment_wide_format_csv(self, experiment_id: str, 
                                           session_manager: SessionManager,
                                           message_store: MessageStore = None,
-                                          experiment_manager: Optional[ExperimentManager] = None) -> str:
+                                          experiment_manager: Optional[ExperimentManager] = None,
+                                          excel_format: bool = False,
+                                          missing_value: str = 'blank') -> str:
         """
         実験データをワイド形式CSVでエクスポート（統計分析用）
         1行 = 1参加者（1セッション）
@@ -501,16 +530,16 @@ class DataExporter:
         )
         ```
         """
-        # 実験に属する全セッションを取得
+        # 実験に属する全セッションを取得（statusに関係なく全て）
         all_sessions = session_manager.get_all_sessions()
-        exp_sessions = [s for s in all_sessions if s.experiment_id == experiment_id and s.status == 'ended']
+        exp_sessions = [s for s in all_sessions if s.experiment_id == experiment_id]
         
         if not exp_sessions:
             # セッションがない場合は空のCSVを返す
             output = io.StringIO()
             writer = csv.writer(output)
             writer.writerow(['experiment_id', 'session_id', 'participant_code', 'status', 'message'])
-            writer.writerow([experiment_id, '', '', 'no_data', 'No completed sessions found'])
+            writer.writerow([experiment_id, '', '', 'no_data', 'No sessions found for this experiment'])
             return output.getvalue()
         
         # 実験フローを取得（チャットステップ情報の取得用）
@@ -638,14 +667,17 @@ class DataExporter:
             'client_id',
             'condition_id',
             'experiment_group',
+            'status',                # セッションステータス（completed, active など）
+            'flow_completed',        # フローが最後まで完了したか（TRUE/FALSE）
+            'completed_steps_count', # 完了したステップ数
             'started_at',
             'ended_at',
             'duration_seconds',
             'total_messages',
             'user_message_count',
             'bot_message_count',
-            'total_user_chars',      # 🆕 ユーザーメッセージの総文字数
-            'total_user_words',      # 🆕 ユーザーメッセージの総単語数
+            'total_user_chars',      # ユーザーメッセージの総文字数
+            'total_user_words',      # ユーザーメッセージの総単語数
             'avg_user_chars',
             'avg_user_words'
         ]
@@ -698,14 +730,29 @@ class DataExporter:
                 bot_msg_count = len(bot_messages)
                 
                 for msg in user_messages:
-                    total_user_chars += msg.char_count
-                    total_user_words += msg.word_count
+                    total_user_chars += msg.metadata.char_count
+                    total_user_words += msg.metadata.word_count
             
             avg_user_chars = f"{total_user_chars / user_msg_count:.2f}" if user_msg_count > 0 else ''
             avg_user_words = f"{total_user_words / user_msg_count:.2f}" if user_msg_count > 0 else ''
             
             # client_idを取得（session.client_idを優先、なければparticipantsから）
             client_id = session.client_id if hasattr(session, 'client_id') and session.client_id else (session.participants[0] if session.participants else '')
+            
+            # セッション情報を計算
+            completed_steps_count = len(session.completed_steps) if hasattr(session, 'completed_steps') and session.completed_steps else 0
+            # フロー完了判定（実験フローがある場合、全ステップ完了しているか）
+            flow_completed = ''
+            if experiment_flow_raw:
+                # フローのトップレベルステップ数（ブランチ内は個別にカウントされる）
+                # completed_steps にはブランチ内のステップも含まれるため、
+                # 最後のステップが完了していればフロー完了とみなす
+                if hasattr(session, 'flow_completed') and session.flow_completed is not None:
+                    flow_completed = 'TRUE' if session.flow_completed else 'FALSE'
+                elif session.status == 'completed':
+                    flow_completed = 'TRUE'
+                elif completed_steps_count > 0:
+                    flow_completed = 'FALSE'
             
             # 行データの基本部分
             row_data = [
@@ -715,14 +762,17 @@ class DataExporter:
                 client_id,
                 session.condition_id or '',
                 session.experiment_group or '',
+                session.status or '',
+                flow_completed,
+                completed_steps_count,
                 session.created_at,
                 session.ended_at or '',
                 duration_seconds,
                 session.total_messages,
                 user_msg_count,
                 bot_msg_count,
-                total_user_chars,      # 🆕 総文字数
-                total_user_words,      # 🆕 総単語数
+                total_user_chars,
+                total_user_words,
                 avg_user_chars,
                 avg_user_words
             ]
@@ -740,19 +790,25 @@ class DataExporter:
                                 if 'survey_responses' in client_data:
                                     for response in client_data['survey_responses']:
                                         if isinstance(response, dict) and 'question_id' in response:
-                                            # 配列回答はJSON文字列に変換
+                                            # 配列回答はJSON文字列に変換、文字列回答は改行を置換
                                             answer = response.get('answer')
                                             if isinstance(answer, list):
                                                 answer = json.dumps(answer, ensure_ascii=False)
+                                            elif isinstance(answer, str):
+                                                # 改行をスペースに置換（CSVの行分割を防ぐ）
+                                                answer = answer.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
                                             survey_answers[response['question_id']] = answer
                                 # ランダマイザーの回答
                                 if 'randomizer_responses' in client_data:
                                     for response in client_data['randomizer_responses']:
                                         if isinstance(response, dict) and 'question_id' in response:
-                                            # 配列回答はJSON文字列に変換
+                                            # 配列回答はJSON文字列に変換、文字列回答は改行を置換
                                             answer = response.get('answer')
                                             if isinstance(answer, list):
                                                 answer = json.dumps(answer, ensure_ascii=False)
+                                            elif isinstance(answer, str):
+                                                # 改行をスペースに置換（CSVの行分割を防ぐ）
+                                                answer = answer.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
                                             survey_answers[response['question_id']] = answer
             
             # 旧形式: survey_responses（後方互換性のため）
@@ -760,10 +816,13 @@ class DataExporter:
                 for client_id_resp, responses in session.survey_responses.items():
                     for response in responses:
                         if hasattr(response, 'question_id') and hasattr(response, 'answer'):
-                            # 配列回答はJSON文字列に変換
+                            # 配列回答はJSON文字列に変換、文字列回答は改行を置換
                             answer = response.answer
                             if isinstance(answer, list):
                                 answer = json.dumps(answer, ensure_ascii=False)
+                            elif isinstance(answer, str):
+                                # 改行をスペースに置換（CSVの行分割を防ぐ）
+                                answer = answer.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
                             survey_answers[response.question_id] = answer
             
             # ブランチ選択結果を追加（ID、ラベル、値の3種類）
@@ -909,12 +968,406 @@ class DataExporter:
             for eval_id in all_ai_eval_ids.keys():
                 row_data.append(ai_eval_answers.get(eval_id, ''))
             
-            # 欠損値処理: Rで正しく認識されるように空文字列はそのまま残す
-            # Rでの読み込み時に na.strings=c("", "NA") を指定すれば欠損値として扱われる
-            # Noneは空文字列に変換
-            row_data = ['' if cell is None else cell for cell in row_data]
+            # 欠損値処理: 指定されたスタイルで欠損値を表現
+            # missing_value: 'blank'=空文字列, 'NA'=NA文字列, 'comma'=空セル
+            missing_val = self._get_missing_value(missing_value)
+            row_data = [missing_val if (cell is None or cell == '') else cell for cell in row_data]
             
             writer.writerow(row_data)
         
-        return output.getvalue()
+        return self._add_bom_if_excel(output.getvalue(), excel_format)
+    
+    def export_experiment_wide_format_with_codebook(self, experiment_id: str, 
+                                                     session_manager: SessionManager,
+                                                     message_store: MessageStore = None,
+                                                     experiment_manager: Optional[ExperimentManager] = None,
+                                                     excel_format: bool = False,
+                                                     missing_value: str = 'blank') -> bytes:
+        """
+        実験データをワイド形式CSVとコードブックCSVをZIPでエクスポート
+        - データCSV: 全てのカテゴリカル変数を数値コードで出力
+        - コードブックCSV: 変数名、値、ラベルの対応表
+        
+        Returns:
+            bytes: ZIPファイルのバイナリデータ
+        """
+        # 実験に属する全セッションを取得
+        all_sessions = session_manager.get_all_sessions()
+        exp_sessions = [s for s in all_sessions if s.experiment_id == experiment_id]
+        
+        # 実験フローを取得
+        experiment = None
+        experiment_flow_raw = None
+        if experiment_manager:
+            experiment = experiment_manager.get_experiment(experiment_id)
+            if experiment and experiment.experiment_flow:
+                experiment_flow_raw = experiment.experiment_flow
+        
+        # コードブック用のマッピングを収集
+        codebook_entries = []  # [(variable, value, label), ...]
+        
+        # ブランチ条件のコードブックを生成
+        branch_code_map = {}  # {step_id: {branch_id: (value, label)}}
+        
+        # カテゴリカル変数のマッピング（実験フローから動的に取得）
+        categorical_maps = {}  # {question_id: {label: value}}
+        
+        # 再帰的に実験フローからステップを収集する関数
+        def collect_steps_from_flow(steps_list, collected_steps):
+            for step_dict in steps_list:
+                if isinstance(step_dict, dict):
+                    collected_steps.append(step_dict)
+                    # ブランチの場合は内部のステップも収集
+                    if step_dict.get('step_type') == 'branch':
+                        for branch in step_dict.get('branches', []):
+                            branch_steps = branch.get('steps', [])
+                            if branch_steps:
+                                collect_steps_from_flow(branch_steps, collected_steps)
+        
+        all_steps = []
+        if experiment_flow_raw:
+            collect_steps_from_flow(experiment_flow_raw, all_steps)
+        
+        # 各ステップを処理
+        for step_dict in all_steps:
+            step_type = step_dict.get('step_type', '')
+            
+            # ブランチステップの処理
+            if step_type == 'branch':
+                step_id = step_dict.get('step_id', '')
+                branches = step_dict.get('branches', [])
+                branch_code_map[step_id] = {}
+                for idx, branch in enumerate(branches, 1):
+                    branch_id = branch.get('branch_id', '')
+                    label = branch.get('condition_label', branch_id)
+                    value = branch.get('condition_value', idx)
+                    if value == '' or value is None:
+                        value = idx
+                    branch_code_map[step_id][branch_id] = (value, label)
+                    codebook_entries.append((f"{step_id}_condition", value, label))
+            
+            # サーベイステップの処理（選択肢をコードブックに追加）
+            elif step_type == 'survey':
+                questions = step_dict.get('survey_questions', [])
+                for q in questions:
+                    q_id = q.get('question_id', '')
+                    q_type = q.get('question_type', '')
+                    options = q.get('options', [])
+                    scale = q.get('scale')
+                    
+                    # radio/checkboxで選択肢がある場合
+                    if q_type in ['radio', 'checkbox'] and options:
+                        categorical_maps[q_id] = {}
+                        for idx, opt in enumerate(options, 1):
+                            categorical_maps[q_id][opt] = idx
+                            codebook_entries.append((q_id, idx, opt))
+                    
+                    # likertスケールの場合
+                    elif q_type == 'likert' and scale:
+                        for i in range(1, scale + 1):
+                            codebook_entries.append((q_id, i, f"Scale {i}/{scale}"))
+        
+        # flow_completed のコードブック
+        codebook_entries.append(('flow_completed', 1, 'TRUE'))
+        codebook_entries.append(('flow_completed', 0, 'FALSE'))
+        
+        # --- データCSVの生成（値のみ版） ---
+        data_csv = self._generate_coded_data_csv(
+            exp_sessions, experiment_id, experiment_flow_raw,
+            branch_code_map, categorical_maps,
+            message_store, missing_value, excel_format
+        )
+        
+        # --- コードブックCSVの生成 ---
+        codebook_csv = self._generate_codebook_csv(codebook_entries, excel_format)
+        
+        # --- ZIPファイルの生成 ---
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f'data_{experiment_id}.csv', data_csv)
+            zf.writestr(f'codebook_{experiment_id}.csv', codebook_csv)
+        
+        zip_buffer.seek(0)
+        return zip_buffer.getvalue()
+    
+    def _generate_codebook_csv(self, codebook_entries: List[Tuple[str, Any, str]], 
+                                excel_format: bool = False) -> str:
+        """コードブックCSVを生成"""
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # ヘッダー
+        writer.writerow(['variable', 'value', 'label'])
+        
+        # エントリを変数名でソートして出力
+        sorted_entries = sorted(codebook_entries, key=lambda x: (x[0], x[1]))
+        for variable, value, label in sorted_entries:
+            writer.writerow([variable, value, label])
+        
+        return self._add_bom_if_excel(output.getvalue(), excel_format)
+    
+    def _generate_coded_data_csv(self, exp_sessions, experiment_id: str,
+                                  experiment_flow_raw, branch_code_map: Dict,
+                                  categorical_maps: Dict,
+                                  message_store, missing_value: str,
+                                  excel_format: bool = False) -> str:
+        """全て数値コードに変換したデータCSVを生成"""
+        if not exp_sessions:
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['experiment_id', 'session_id', 'participant_code', 'status', 'message'])
+            writer.writerow([experiment_id, '', '', 'no_data', 'No sessions found for this experiment'])
+            return self._add_bom_if_excel(output.getvalue(), excel_format)
+        
+        # すべてのquestion_idを収集
+        all_question_ids = OrderedDict()
+        all_ai_eval_ids = OrderedDict()
+        all_branch_step_ids = set()
+        all_chat_fields = OrderedDict()
+        all_survey_steps = set()
+        
+        # チャットステップ情報を収集
+        def collect_chat_steps_from_dict(steps_dict, chat_steps_list):
+            for step_dict in steps_dict:
+                if isinstance(step_dict, dict):
+                    if step_dict.get('step_type') == 'chat':
+                        chat_steps_list.append(step_dict)
+                    elif step_dict.get('step_type') == 'branch':
+                        branches = step_dict.get('branches', [])
+                        for branch in branches:
+                            branch_steps = branch.get('steps', [])
+                            if branch_steps:
+                                collect_chat_steps_from_dict(branch_steps, chat_steps_list)
+        
+        chat_steps_in_flow = []
+        if experiment_flow_raw:
+            collect_chat_steps_from_dict(experiment_flow_raw, chat_steps_in_flow)
+            for step_dict in chat_steps_in_flow:
+                step_id = step_dict.get('step_id', '')
+                all_chat_fields[f"{step_id}_ai_model"] = True
+                all_chat_fields[f"{step_id}_bot_name"] = True
+                all_chat_fields[f"{step_id}_chat_duration_seconds"] = True
+            
+            # ブランチステップIDを収集
+            for step_dict in experiment_flow_raw:
+                if isinstance(step_dict, dict) and step_dict.get('step_type') == 'branch':
+                    all_branch_step_ids.add(step_dict.get('step_id', ''))
+        
+        for session in exp_sessions:
+            # step_responsesからアンケート回答を収集
+            if hasattr(session, 'step_responses') and session.step_responses:
+                for step_id, step_data in session.step_responses.items():
+                    if isinstance(step_data, dict):
+                        for client_id, client_data in step_data.items():
+                            if isinstance(client_data, dict):
+                                if 'survey_responses' in client_data:
+                                    all_survey_steps.add(step_id)
+                                    for response in client_data['survey_responses']:
+                                        if isinstance(response, dict) and 'question_id' in response:
+                                            if response['question_id'] not in all_question_ids:
+                                                all_question_ids[response['question_id']] = True
+                                if 'randomizer_responses' in client_data:
+                                    all_survey_steps.add(step_id)
+                                    for response in client_data['randomizer_responses']:
+                                        if isinstance(response, dict) and 'question_id' in response:
+                                            if response['question_id'] not in all_question_ids:
+                                                all_question_ids[response['question_id']] = True
+                                if 'evaluation_results' in client_data:
+                                    eval_results = client_data['evaluation_results']
+                                    if isinstance(eval_results, dict):
+                                        for eval_q_id in eval_results.keys():
+                                            full_id = f"ai_eval_{eval_q_id}"
+                                            if full_id not in all_ai_eval_ids:
+                                                all_ai_eval_ids[full_id] = True
+        
+        # ヘッダー行を構築（ラベル列を除外、値列のみ）
+        headers = [
+            'experiment_id', 'session_id', 'participant_code', 'client_id',
+            'condition_id', 'experiment_group', 'status', 'flow_completed',
+            'completed_steps_count', 'started_at', 'ended_at', 'duration_seconds',
+            'total_messages', 'user_message_count', 'bot_message_count',
+            'total_user_chars', 'total_user_words', 'avg_user_chars', 'avg_user_words'
+        ]
+        
+        # ブランチ条件列（値のみ）
+        for step_id in sorted(all_branch_step_ids):
+            headers.append(f"{step_id}_condition")
+        
+        # チャットステップ情報列
+        headers.extend(list(all_chat_fields.keys()))
+        
+        # 質問順序情報の列
+        question_order_fields = [f"{step_id}_question_order" for step_id in sorted(all_survey_steps)]
+        headers.extend(question_order_fields)
+        
+        # サーベイ質問列
+        headers.extend(list(all_question_ids.keys()))
+        
+        # AI評価列
+        headers.extend(list(all_ai_eval_ids.keys()))
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(headers)
+        
+        # 各セッションのデータを行として出力
+        for session in exp_sessions:
+            duration_seconds = ''
+            if session.ended_at:
+                try:
+                    start = datetime.fromisoformat(session.created_at)
+                    end = datetime.fromisoformat(session.ended_at)
+                    duration_seconds = str(int((end - start).total_seconds()))
+                except:
+                    pass
+            
+            # メッセージ統計を計算
+            user_msg_count = 0
+            bot_msg_count = 0
+            total_user_chars = 0
+            total_user_words = 0
+            
+            if message_store:
+                messages = message_store.get_messages_by_session(session.session_id)
+                user_messages = [m for m in messages if m.message_type in ['user', 'message']]
+                bot_messages = [m for m in messages if m.message_type == 'bot']
+                user_msg_count = len(user_messages)
+                bot_msg_count = len(bot_messages)
+                for msg in user_messages:
+                    total_user_chars += msg.metadata.char_count
+                    total_user_words += msg.metadata.word_count
+            
+            avg_user_chars = f"{total_user_chars / user_msg_count:.2f}" if user_msg_count > 0 else ''
+            avg_user_words = f"{total_user_words / user_msg_count:.2f}" if user_msg_count > 0 else ''
+            
+            client_id = session.client_id if hasattr(session, 'client_id') and session.client_id else (session.participants[0] if session.participants else '')
+            completed_steps_count = len(session.completed_steps) if hasattr(session, 'completed_steps') and session.completed_steps else 0
+            
+            # flow_completedを数値コードに変換
+            flow_completed = ''
+            if hasattr(session, 'flow_completed') and session.flow_completed is not None:
+                flow_completed = 1 if session.flow_completed else 0
+            elif session.status == 'completed':
+                flow_completed = 1
+            elif completed_steps_count > 0:
+                flow_completed = 0
+            
+            row_data = [
+                experiment_id, session.session_id, session.participant_code or '', client_id,
+                session.condition_id or '', session.experiment_group or '', session.status or '',
+                flow_completed, completed_steps_count, session.created_at, session.ended_at or '',
+                duration_seconds, session.total_messages, user_msg_count, bot_msg_count,
+                total_user_chars, total_user_words, avg_user_chars, avg_user_words
+            ]
+            
+            # ブランチ条件の値（数値コードのみ）
+            for step_id in sorted(all_branch_step_ids):
+                branch_value = ''
+                if hasattr(session, 'assigned_conditions') and session.assigned_conditions:
+                    branch_id = session.assigned_conditions.get(step_id, '')
+                    if branch_id and step_id in branch_code_map:
+                        if branch_id in branch_code_map[step_id]:
+                            branch_value = branch_code_map[step_id][branch_id][0]  # 値のみ
+                row_data.append(branch_value)
+            
+            # チャットステップ情報
+            chat_info = {}
+            if experiment_flow_raw and message_store:
+                def find_chat_step_by_id_from_dict(steps_dict, target_step_id):
+                    for step_dict in steps_dict:
+                        if isinstance(step_dict, dict):
+                            if step_dict.get('step_id') == target_step_id and step_dict.get('step_type') == 'chat':
+                                return step_dict
+                            elif step_dict.get('step_type') == 'branch':
+                                for branch in step_dict.get('branches', []):
+                                    found = find_chat_step_by_id_from_dict(branch.get('steps', []), target_step_id)
+                                    if found:
+                                        return found
+                    return None
+                
+                completed_chat_steps = []
+                if hasattr(session, 'completed_steps'):
+                    for s_id in session.completed_steps:
+                        found_step = find_chat_step_by_id_from_dict(experiment_flow_raw, s_id)
+                        if found_step:
+                            completed_chat_steps.append(found_step)
+                
+                for step_dict in completed_chat_steps:
+                    s_id = step_dict.get('step_id', '')
+                    chat_info[f"{s_id}_ai_model"] = step_dict.get('bot_model', '')
+                    chat_info[f"{s_id}_bot_name"] = step_dict.get('bot_name', '')
+                    messages = message_store.get_messages_by_session(session.session_id)
+                    chat_messages = [m for m in messages if m.message_type in ['user', 'bot']]
+                    if chat_messages:
+                        try:
+                            start_time = datetime.fromisoformat(chat_messages[0].timestamp.replace('Z', '+00:00'))
+                            end_time = datetime.fromisoformat(chat_messages[-1].timestamp.replace('Z', '+00:00'))
+                            chat_info[f"{s_id}_chat_duration_seconds"] = int((end_time - start_time).total_seconds())
+                        except:
+                            chat_info[f"{s_id}_chat_duration_seconds"] = ''
+            
+            for field_name in all_chat_fields.keys():
+                row_data.append(chat_info.get(field_name, ''))
+            
+            # 質問順序情報
+            question_order_data = {}
+            if hasattr(session, 'step_responses') and session.step_responses:
+                for step_id, step_data in session.step_responses.items():
+                    if isinstance(step_data, dict):
+                        for client_id_resp, client_data in step_data.items():
+                            if isinstance(client_data, dict) and 'question_order' in client_data:
+                                order_list = client_data['question_order']
+                                if isinstance(order_list, list):
+                                    question_order_data[f"{step_id}_question_order"] = ','.join(order_list)
+            
+            for field_name in question_order_fields:
+                row_data.append(question_order_data.get(field_name, ''))
+            
+            # サーベイ回答（数値コード化）
+            survey_answers = {}
+            if hasattr(session, 'step_responses') and session.step_responses:
+                for step_id, step_data in session.step_responses.items():
+                    if isinstance(step_data, dict):
+                        for client_id_resp, client_data in step_data.items():
+                            if isinstance(client_data, dict):
+                                for key in ['survey_responses', 'randomizer_responses']:
+                                    if key in client_data:
+                                        for response in client_data[key]:
+                                            if isinstance(response, dict) and 'question_id' in response:
+                                                answer = response.get('answer')
+                                                q_id = response['question_id']
+                                                # カテゴリカル変数を数値コード化
+                                                if q_id in categorical_maps and isinstance(answer, str):
+                                                    answer = categorical_maps[q_id].get(answer, answer)
+                                                elif isinstance(answer, list):
+                                                    answer = json.dumps(answer, ensure_ascii=False)
+                                                elif isinstance(answer, str):
+                                                    answer = answer.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
+                                                survey_answers[q_id] = answer
+            
+            for q_id in all_question_ids.keys():
+                row_data.append(survey_answers.get(q_id, ''))
+            
+            # AI評価結果
+            ai_eval_answers = {}
+            if hasattr(session, 'step_responses') and session.step_responses:
+                for step_id, step_data in session.step_responses.items():
+                    if isinstance(step_data, dict):
+                        for client_id_resp, client_data in step_data.items():
+                            if isinstance(client_data, dict) and 'evaluation_results' in client_data:
+                                eval_results = client_data['evaluation_results']
+                                if isinstance(eval_results, dict):
+                                    for eval_q_id, score in eval_results.items():
+                                        ai_eval_answers[f"ai_eval_{eval_q_id}"] = str(score)
+            
+            for eval_id in all_ai_eval_ids.keys():
+                row_data.append(ai_eval_answers.get(eval_id, ''))
+            
+            # 欠損値処理
+            missing_val = self._get_missing_value(missing_value)
+            row_data = [missing_val if (cell is None or cell == '') else cell for cell in row_data]
+            
+            writer.writerow(row_data)
+        
+        return self._add_bom_if_excel(output.getvalue(), excel_format)
 

@@ -6,17 +6,87 @@ let currentEditingStepIndex = null;
 let currentEditingFlowConditionId = null;
 let isEditingExperimentFlow = false;
 let experimentFlowSteps = [];
+let currentExperimentStatus = null;  // Track current experiment status
 
 // ========== Initialization ==========
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log('=== Experiment Detail Page Initialization ===');
     console.log('Experiment ID:', experimentId);
+    loadExperimentStatus();  // Load status first and update buttons
     loadExperimentFlow();
     loadParticipantCodes();
     loadSessions();
     loadAvailableModels();
 });
+
+// ========== Experiment Status & Action Buttons ==========
+
+async function loadExperimentStatus() {
+    try {
+        const response = await fetch(`/api/experiments`, { credentials: 'include' });
+        const data = await response.json();
+        const experiment = data.experiments.find(exp => exp.experiment_id === experimentId);
+        
+        if (experiment) {
+            currentExperimentStatus = experiment.status;
+            updateStatusBadge(experiment.status);
+            updateActionButtons(experiment.status);
+        }
+    } catch (error) {
+        console.error('Failed to load experiment status:', error);
+    }
+}
+
+function updateStatusBadge(status) {
+    const badge = document.getElementById('experimentStatusBadge');
+    if (!badge) return;
+    
+    const statusLabels = {
+        'planning': 'Planning',
+        'active': 'Active',
+        'paused': 'Paused',
+        'completed': 'Completed'
+    };
+    
+    // Remove all status classes and add the correct one
+    badge.className = 'experiment-status status-' + status;
+    badge.textContent = statusLabels[status] || status;
+}
+
+function updateActionButtons(status) {
+    const container = document.getElementById('experimentActionButtons');
+    if (!container) return;
+    
+    let buttons = '';
+    
+    switch (status) {
+        case 'planning':
+            buttons = `
+                <button class="btn btn-success" onclick="startExperiment()">▶ Start Experiment</button>
+            `;
+            break;
+        case 'active':
+            buttons = `
+                <button class="btn" onclick="pauseExperiment()" style="background: #f39c12; color: white;">⏸ Pause</button>
+                <button class="btn btn-danger" onclick="endExperiment()">⏹ End Experiment</button>
+            `;
+            break;
+        case 'paused':
+            buttons = `
+                <button class="btn btn-success" onclick="resumeExperiment()">▶ Resume</button>
+                <button class="btn btn-danger" onclick="endExperiment()">⏹ End Experiment</button>
+            `;
+            break;
+        case 'completed':
+            buttons = `
+                <button class="btn btn-success" onclick="resumeExperiment()">▶ Reopen Experiment</button>
+            `;
+            break;
+    }
+    
+    container.innerHTML = buttons;
+}
 
 // Load experiment flow and render preview
 async function loadExperimentFlow() {
@@ -158,6 +228,7 @@ async function displayParticipantCodes(codes) {
     const unused = codesArray.filter(c => c.status === 'unused');
     const used = codesArray.filter(c => c.status === 'used');
     const completed = codesArray.filter(c => c.status === 'completed');
+    const invalidated = codesArray.filter(c => c.status === 'invalidated');
     
     const total = codesArray.length;
     
@@ -175,18 +246,22 @@ async function displayParticipantCodes(codes) {
     
     let html = `
         <div style="margin-bottom: 15px;">
-            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <div style="flex: 1; padding: 10px; background: #e3f2fd; border-radius: 6px; text-align: center;">
-                    <div style="font-size: 24px; font-weight: 600; color: #1976d2;">${unused.length}</div>
-                    <div style="font-size: 12px; color: #666;">Unused</div>
+            <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 80px; padding: 10px; background: #e3f2fd; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 20px; font-weight: 600; color: #1976d2;">${unused.length}</div>
+                    <div style="font-size: 11px; color: #666;">Unused</div>
                 </div>
-                <div style="flex: 1; padding: 10px; background: #fff3e0; border-radius: 6px; text-align: center;">
-                    <div style="font-size: 24px; font-weight: 600; color: #f57c00;">${used.length}</div>
-                    <div style="font-size: 12px; color: #666;">In Progress</div>
+                <div style="flex: 1; min-width: 80px; padding: 10px; background: #fff3e0; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 20px; font-weight: 600; color: #f57c00;">${used.length}</div>
+                    <div style="font-size: 11px; color: #666;">In Progress</div>
                 </div>
-                <div style="flex: 1; padding: 10px; background: #e8f5e9; border-radius: 6px; text-align: center;">
-                    <div style="font-size: 24px; font-weight: 600; color: #388e3c;">${completed.length}</div>
-                    <div style="font-size: 12px; color: #666;">Completed</div>
+                <div style="flex: 1; min-width: 80px; padding: 10px; background: #e8f5e9; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 20px; font-weight: 600; color: #388e3c;">${completed.length}</div>
+                    <div style="font-size: 11px; color: #666;">Completed</div>
+                </div>
+                <div style="flex: 1; min-width: 80px; padding: 10px; background: #f5f5f5; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 20px; font-weight: 600; color: #9e9e9e;">${invalidated.length}</div>
+                    <div style="font-size: 11px; color: #666;">Invalidated</div>
                 </div>
             </div>
             
@@ -228,7 +303,8 @@ async function displayParticipantCodes(codes) {
     const sortedCodes = [
         ...unused.sort((a, b) => a.code.localeCompare(b.code)),
         ...used.sort((a, b) => a.code.localeCompare(b.code)),
-        ...completed.sort((a, b) => a.code.localeCompare(b.code))
+        ...completed.sort((a, b) => a.code.localeCompare(b.code)),
+        ...invalidated.sort((a, b) => a.code.localeCompare(b.code))
     ];
     
     sortedCodes.forEach(item => {
@@ -249,17 +325,29 @@ async function displayParticipantCodes(codes) {
             textColor = '#388e3c';
             statusText = 'Completed';
             icon = '🟢';
+        } else if (item.status === 'invalidated') {
+            bgColor = '#f5f5f5';
+            textColor = '#9e9e9e';
+            statusText = 'Invalidated';
+            icon = '⛔';
         }
         
         const password = item.password || 'N/A';
         
-        // Show delete button only for unused codes
+        // Show delete button only for unused codes, and status change for all
         const deleteBtn = item.status === 'unused' ? 
             `<button onclick="deleteParticipantCode('${item.code}')" 
-                     style="padding: 2px 6px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; margin-left: 8px;"
+                     style="padding: 2px 6px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; margin-left: 4px;"
                      title="Delete this code">
                 ✕
             </button>` : '';
+        
+        // Status change button for admin
+        const statusBtn = `<button onclick="showCodeStatusChangeModal('${item.code}', '${item.status}')" 
+                     style="padding: 2px 6px; background: #6c757d; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; margin-left: 4px;"
+                     title="Change status">
+                ⚙️
+            </button>`;
         
         html += `
             <div style="display: flex; align-items: center; padding: 8px; margin-bottom: 5px; background: ${bgColor}; border-radius: 4px; font-size: 12px;">
@@ -274,7 +362,8 @@ async function displayParticipantCodes(codes) {
                         <span style="font-family: 'Courier New', monospace; font-weight: 700; color: #333; background: #fffacd; padding: 2px 8px; border-radius: 3px; border: 1px solid #ffd700; letter-spacing: 1px; font-size: 13px;">${password}</span>
                     </div>
                 </div>
-                <span style="font-size: 10px; color: #666;">${statusText}</span>
+                <span style="font-size: 10px; color: #666; min-width: 70px;">${statusText}</span>
+                ${statusBtn}
                 ${deleteBtn}
             </div>
         `;
@@ -314,20 +403,68 @@ async function loadSessions() {
         const sessions = data.sessions || [];
         
         console.log('✅ Sessions loaded:', sessions.length);
+        if (sessions.length > 0) {
+            console.log('📋 First session sample:', JSON.stringify(sessions[0], null, 2));
+        }
         
         const container = document.getElementById('sessionsList');
         const countSpan = document.getElementById('sessions-count');
         
-        const activeSessions = sessions.filter(s => s.status === 'active');
-        const endedSessions = sessions.filter(s => s.status === 'ended');
-        countSpan.textContent = `(${sessions.length}) - Active: ${activeSessions.length} | Ended: ${endedSessions.length}`;
+        // Count by status
+        const statusCounts = {
+            active: sessions.filter(s => s.status === 'active').length,
+            paused: sessions.filter(s => s.status === 'paused').length,
+            completed: sessions.filter(s => s.status === 'completed').length,
+            cancelled: sessions.filter(s => s.status === 'cancelled').length,
+            abandoned: sessions.filter(s => s.status === 'abandoned').length,
+            // Count sessions with 'resumed' status OR that have been resumed in history
+            resumed: sessions.filter(s => {
+                // Direct 'resumed' status
+                if (s.status === 'resumed') return true;
+                // Or check history for resume transitions
+                const history = s.status_history || [];
+                return history.some(h => h.new_status === 'resumed' || (h.new_status === 'active' && h.old_status !== 'active'));
+            }).length
+        };
+        
+        countSpan.textContent = `(${sessions.length} total)`;
         
         if (sessions.length === 0) {
             container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No sessions yet</p>';
             return;
         }
         
-        container.innerHTML = `
+        // Status statistics cards
+        const statusCardsHtml = `
+            <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 70px; padding: 8px; background: #d4edda; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 18px; font-weight: 600; color: #155724;">🟢 ${statusCounts.active}</div>
+                    <div style="font-size: 10px; color: #155724;">Active</div>
+                </div>
+                <div style="flex: 1; min-width: 70px; padding: 8px; background: #fff3cd; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 18px; font-weight: 600; color: #856404;">⏸️ ${statusCounts.paused}</div>
+                    <div style="font-size: 10px; color: #856404;">Paused</div>
+                </div>
+                <div style="flex: 1; min-width: 70px; padding: 8px; background: #cce5ff; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 18px; font-weight: 600; color: #004085;">✅ ${statusCounts.completed}</div>
+                    <div style="font-size: 10px; color: #004085;">Completed</div>
+                </div>
+                <div style="flex: 1; min-width: 70px; padding: 8px; background: #f8d7da; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 18px; font-weight: 600; color: #721c24;">❌ ${statusCounts.cancelled}</div>
+                    <div style="font-size: 10px; color: #721c24;">Cancelled</div>
+                </div>
+                <div style="flex: 1; min-width: 70px; padding: 8px; background: #e2e3e5; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 18px; font-weight: 600; color: #383d41;">🚪 ${statusCounts.abandoned}</div>
+                    <div style="font-size: 10px; color: #383d41;">Abandoned</div>
+                </div>
+                <div style="flex: 1; min-width: 70px; padding: 8px; background: #e8f5e9; border-radius: 6px; text-align: center; border: 2px dashed #4caf50;">
+                    <div style="font-size: 18px; font-weight: 600; color: #2e7d32;">🔄 ${statusCounts.resumed}</div>
+                    <div style="font-size: 10px; color: #2e7d32;">Resumed</div>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML = statusCardsHtml + `
             <table style="width: 100%; border-collapse: collapse;">
                 <thead>
                     <tr style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
@@ -345,23 +482,35 @@ async function loadSessions() {
                         const codeStyle = participantCode !== 'N/A' 
                             ? 'font-family: monospace; font-weight: 600; color: #2c3e50;' 
                             : 'color: #999;';
+                        
+                        // Status styling
+                        const statusStyles = {
+                            active: { bg: '#d4edda', color: '#155724', icon: '🟢' },
+                            resumed: { bg: '#e8f5e9', color: '#2e7d32', icon: '🔄' },
+                            paused: { bg: '#fff3cd', color: '#856404', icon: '⏸️' },
+                            completed: { bg: '#cce5ff', color: '#004085', icon: '✅' },
+                            cancelled: { bg: '#f8d7da', color: '#721c24', icon: '❌' },
+                            abandoned: { bg: '#e2e3e5', color: '#383d41', icon: '🚪' }
+                        };
+                        const style = statusStyles[s.status] || statusStyles.active;
+                        
                         return `
                         <tr style="border-bottom: 1px solid #eee;">
                             <td style="padding: 10px; ${codeStyle}">${participantCode}</td>
-                            <td style="padding: 10px; font-family: monospace; font-size: 0.9em;">${s.session_id.substring(0, 16)}...</td>
-                            <td style="padding: 10px; text-align: center;">${s.participants ? s.participants.length : 0}</td>
+                            <td style="padding: 10px; font-family: monospace; font-size: 0.85em; word-break: break-all;">${s.session_id}</td>
+                            <td style="padding: 10px; text-align: center;">${Array.isArray(s.participants) ? s.participants.length : (s.participants ? 1 : 0)}</td>
                             <td style="padding: 10px; text-align: center;">${s.total_messages || 0}</td>
                             <td style="padding: 10px; text-align: center;">
-                                <span style="padding: 3px 8px; border-radius: 3px; font-size: 0.85em; background: ${s.status === 'active' ? '#d4edda' : '#f8d7da'}; color: ${s.status === 'active' ? '#155724' : '#721c24'};">
-                                    ${s.status}
+                                <span style="padding: 3px 8px; border-radius: 3px; font-size: 0.85em; background: ${style.bg}; color: ${style.color}; cursor: pointer;"
+                                      onclick="showSessionStatusChangeModal('${s.session_id}', '${s.status}')"
+                                      title="Click to change status">
+                                    ${style.icon} ${s.status}
                                 </span>
                             </td>
                             <td style="padding: 10px; text-align: center;">
                                 <button class="btn btn-small btn-primary" onclick="viewSession('${s.session_id}')" style="margin-right: 4px;">View</button>
-                                ${s.status === 'ended' ? `
-                                    <button class="btn btn-small" onclick="exportSessionData('${s.session_id}', 'json')" style="margin-right: 4px;">JSON</button>
-                                    <button class="btn btn-small" onclick="exportSessionData('${s.session_id}', 'csv')">CSV</button>
-                                ` : ''}
+                                <button class="btn btn-small" onclick="exportSessionData('${s.session_id}', 'json')" style="margin-right: 4px;">JSON</button>
+                                <button class="btn btn-small" onclick="exportSessionData('${s.session_id}', 'csv')">CSV</button>
                             </td>
                         </tr>
                         `;
@@ -373,6 +522,113 @@ async function loadSessions() {
         console.error('Failed to load sessions:', error);
     }
 }
+
+// ========== Session Status Change ==========
+
+function showSessionStatusChangeModal(sessionId, currentStatus) {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+    
+    const statusOptions = [
+        { value: 'active', label: 'Active', desc: 'Session in progress', icon: '🟢', color: '#155724' },
+        { value: 'resumed', label: 'Resumed', desc: 'Participant rejoined', icon: '🔄', color: '#2e7d32' },
+        { value: 'paused', label: 'Paused', desc: 'Temporarily suspended', icon: '⏸️', color: '#856404' },
+        { value: 'completed', label: 'Completed', desc: 'Successfully finished', icon: '✅', color: '#004085' },
+        { value: 'cancelled', label: 'Cancelled', desc: 'Stopped by admin', icon: '❌', color: '#721c24' },
+        { value: 'abandoned', label: 'Abandoned', desc: 'Participant left early', icon: '🚪', color: '#383d41' }
+    ];
+    
+    const optionsHtml = statusOptions.map(opt => `
+        <label style="display: flex; align-items: center; padding: 10px; margin-bottom: 6px; background: ${currentStatus === opt.value ? '#e3f2fd' : '#f8f9fa'}; border: 2px solid ${currentStatus === opt.value ? '#007bff' : '#dee2e6'}; border-radius: 6px; cursor: pointer;">
+            <input type="radio" name="newSessionStatus" value="${opt.value}" ${currentStatus === opt.value ? 'checked' : ''} style="margin-right: 10px;">
+            <div>
+                <div style="font-weight: 600; color: ${opt.color};">${opt.icon} ${opt.label}</div>
+                <div style="font-size: 11px; color: #666;">${opt.desc}</div>
+            </div>
+        </label>
+    `).join('');
+    
+    modal.innerHTML = `
+        <div style="background: white; border-radius: 12px; padding: 25px; max-width: 500px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
+            <h2 style="margin: 0 0 5px 0; color: #2c3e50;">⚙️ Change Session Status</h2>
+            <p style="margin: 0 0 20px 0; color: #666; font-size: 12px; word-break: break-all;">Session: <strong style="font-family: monospace;">${sessionId}</strong></p>
+            
+            <div style="margin-bottom: 20px; max-height: 300px; overflow-y: auto;">
+                ${optionsHtml}
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: #333;">Admin Note (optional)</label>
+                <textarea id="sessionAdminNote" rows="2" placeholder="Reason for status change..." 
+                          style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; resize: vertical;"></textarea>
+            </div>
+            
+            <div style="padding: 10px; background: #fff3cd; border-radius: 6px; margin-bottom: 15px; font-size: 11px; color: #856404;">
+                ⚠️ Changing status to cancelled/completed will notify connected participants.
+            </div>
+            
+            <div style="display: flex; gap: 10px;">
+                <button onclick="closeSessionStatusModal()" 
+                        style="flex: 1; padding: 10px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                    Cancel
+                </button>
+                <button onclick="submitSessionStatusChange('${sessionId}')" 
+                        style="flex: 1; padding: 10px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    window.currentSessionStatusModal = modal;
+}
+
+function closeSessionStatusModal() {
+    if (window.currentSessionStatusModal) {
+        document.body.removeChild(window.currentSessionStatusModal);
+        window.currentSessionStatusModal = null;
+    }
+}
+
+async function submitSessionStatusChange(sessionId) {
+    const selectedStatus = document.querySelector('input[name="newSessionStatus"]:checked');
+    const adminNote = document.getElementById('sessionAdminNote').value.trim();
+    
+    if (!selectedStatus) {
+        alert('Please select a status');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/sessions/${sessionId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                status: selectedStatus.value,
+                note: adminNote
+            })
+        });
+        
+        if (response.ok) {
+            closeSessionStatusModal();
+            await loadSessions();
+            alert(`Session status updated successfully!`);
+        } else {
+            const error = await response.json();
+            alert(`Failed to update status: ${error.detail || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error updating session status:', error);
+        alert('Error: ' + error.message);
+    }
+}
+
+window.showSessionStatusChangeModal = showSessionStatusChangeModal;
+window.closeSessionStatusModal = closeSessionStatusModal;
+window.submitSessionStatusChange = submitSessionStatusChange;
+
 
 function toggleSessions() {
     const list = document.getElementById('sessionsList');
@@ -649,7 +905,7 @@ function closePasswordModal(shouldReload = false) {
         window.currentPasswordModal = null;
     }
     if (shouldReload) {
-        location.reload();
+        loadExperimentStatus();  // Update UI dynamically instead of full reload
     }
 }
 
@@ -756,8 +1012,8 @@ async function pauseExperiment() {
             credentials: 'include'
         });
         if (response.ok) {
-            alert('Experiment paused!');
-            location.reload();
+            alert('⏸ Experiment paused!');
+            loadExperimentStatus();  // Update UI dynamically
         } else {
             alert('Failed to pause experiment');
         }
@@ -767,7 +1023,8 @@ async function pauseExperiment() {
 }
 
 async function resumeExperiment() {
-    if (!confirm('Resume this experiment?')) return;
+    const statusText = currentExperimentStatus === 'completed' ? 'reopen' : 'resume';
+    if (!confirm(`${statusText.charAt(0).toUpperCase() + statusText.slice(1)} this experiment?`)) return;
     
     try {
         const response = await fetch(`/api/experiments/${experimentId}/resume`, { 
@@ -775,10 +1032,11 @@ async function resumeExperiment() {
             credentials: 'include'
         });
         if (response.ok) {
-            alert('Experiment resumed!');
-            location.reload();
+            alert('▶ Experiment resumed!');
+            loadExperimentStatus();  // Update UI dynamically
         } else {
-            alert('Failed to resume experiment');
+            const errorData = await response.json().catch(() => ({}));
+            alert('Failed to resume experiment: ' + (errorData.detail || 'Unknown error'));
         }
     } catch (error) {
         alert('Error: ' + error.message);
@@ -786,7 +1044,7 @@ async function resumeExperiment() {
 }
 
 async function endExperiment() {
-    if (!confirm('End this experiment? This will stop accepting new participants and cannot be undone.')) return;
+    if (!confirm('End this experiment? This will stop accepting new participants.')) return;
     
     try {
         const response = await fetch(`/api/experiments/${experimentId}/end`, { 
@@ -794,8 +1052,8 @@ async function endExperiment() {
             credentials: 'include'
         });
         if (response.ok) {
-            alert('Experiment ended!');
-            location.reload();
+            alert('⏹ Experiment ended!');
+            loadExperimentStatus();  // Update UI dynamically
         } else {
             alert('Failed to end experiment');
         }
@@ -1309,6 +1567,107 @@ async function saveFlow() {
     }
 }
 
+// ========== Code Status Change ==========
+
+// Show modal to change code status
+function showCodeStatusChangeModal(code, currentStatus) {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+    
+    const statusOptions = [
+        { value: 'unused', label: 'Unused', desc: 'Code available for use', color: '#1976d2' },
+        { value: 'used', label: 'In Progress', desc: 'Participant is currently using', color: '#f57c00' },
+        { value: 'completed', label: 'Completed', desc: 'Experiment completed', color: '#388e3c' },
+        { value: 'invalidated', label: 'Invalidated', desc: 'Code disabled by admin', color: '#9e9e9e' }
+    ];
+    
+    const optionsHtml = statusOptions.map(opt => `
+        <label style="display: flex; align-items: center; padding: 12px; margin-bottom: 8px; background: ${currentStatus === opt.value ? '#e3f2fd' : '#f8f9fa'}; border: 2px solid ${currentStatus === opt.value ? opt.color : '#dee2e6'}; border-radius: 6px; cursor: pointer;">
+            <input type="radio" name="newStatus" value="${opt.value}" ${currentStatus === opt.value ? 'checked' : ''} style="margin-right: 12px;">
+            <div>
+                <div style="font-weight: 600; color: ${opt.color};">${opt.label}</div>
+                <div style="font-size: 11px; color: #666;">${opt.desc}</div>
+            </div>
+        </label>
+    `).join('');
+    
+    modal.innerHTML = `
+        <div style="background: white; border-radius: 12px; padding: 25px; max-width: 450px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
+            <h2 style="margin: 0 0 5px 0; color: #2c3e50;">⚙️ Change Code Status</h2>
+            <p style="margin: 0 0 20px 0; color: #666; font-size: 13px;">Code: <strong style="font-family: monospace;">${code}</strong></p>
+            
+            <div style="margin-bottom: 20px;">
+                ${optionsHtml}
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: #333;">Admin Note (optional)</label>
+                <textarea id="adminNote" rows="2" placeholder="Reason for status change..." 
+                          style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; resize: vertical;"></textarea>
+            </div>
+            
+            <div style="display: flex; gap: 10px;">
+                <button onclick="closeCodeStatusModal()" 
+                        style="flex: 1; padding: 10px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                    Cancel
+                </button>
+                <button onclick="submitCodeStatusChange('${code}')" 
+                        style="flex: 1; padding: 10px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    window.currentCodeStatusModal = modal;
+}
+
+function closeCodeStatusModal() {
+    if (window.currentCodeStatusModal) {
+        document.body.removeChild(window.currentCodeStatusModal);
+        window.currentCodeStatusModal = null;
+    }
+}
+
+async function submitCodeStatusChange(code) {
+    const selectedStatus = document.querySelector('input[name="newStatus"]:checked');
+    const adminNote = document.getElementById('adminNote').value.trim();
+    
+    if (!selectedStatus) {
+        alert('Please select a status');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/experiments/${experimentId}/codes/${code}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                status: selectedStatus.value,
+                note: adminNote
+            })
+        });
+        
+        if (response.ok) {
+            closeCodeStatusModal();
+            await loadParticipantCodes();
+            alert(`Code status updated successfully!`);
+        } else {
+            const error = await response.json();
+            alert(`Failed to update status: ${error.detail || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error updating code status:', error);
+        alert('Error: ' + error.message);
+    }
+}
+
+window.showCodeStatusChangeModal = showCodeStatusChangeModal;
+window.closeCodeStatusModal = closeCodeStatusModal;
+window.submitCodeStatusChange = submitCodeStatusChange;
+
 // ========== Global function exports ==========
 
 // Copy all participant codes from the display
@@ -1498,10 +1857,26 @@ async function deleteAllCodes() {
 
 // ==================== Export Wide Format ====================
 async function exportWideFormat() {
-    console.log('[Export] Exporting wide format CSV...');
+    // 選択された形式を取得
+    const formatSelect = document.getElementById('exportFormatSelect');
+    const isExcelFormat = formatSelect ? formatSelect.value === 'excel' : false;
+    
+    // 欠損値の表現方法を取得
+    const missingSelect = document.getElementById('missingValueSelect');
+    const missingValue = missingSelect ? missingSelect.value : 'blank';
+    
+    // コードブック付きかどうかを取得
+    const codebookCheckbox = document.getElementById('includeCodebook');
+    const includeCodebook = codebookCheckbox ? codebookCheckbox.checked : false;
+    
+    const formatLabel = isExcelFormat ? 'Excel' : 'UTF-8';
+    const codebookLabel = includeCodebook ? ' + Codebook' : '';
+    console.log(`[Export] Exporting wide format (${formatLabel}, missing=${missingValue}${codebookLabel})...`);
     
     try {
-        const response = await fetch(`/api/experiments/${experimentId}/export/wide`, {
+        // クエリパラメータでexcel_format, missing_value, include_codebookを指定
+        const url = `/api/experiments/${experimentId}/export/wide?excel_format=${isExcelFormat}&missing_value=${missingValue}&include_codebook=${includeCodebook}`;
+        const response = await fetch(url, {
             method: 'POST',
             credentials: 'include'  // cookieを送信
         });
@@ -1519,9 +1894,9 @@ async function exportWideFormat() {
         
         // CSVファイルをダウンロード
         const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
+        const blobUrl = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
+        a.href = blobUrl;
         
         // ファイル名をContent-Dispositionヘッダーから取得
         const contentDisposition = response.headers.get('Content-Disposition');
@@ -1537,7 +1912,7 @@ async function exportWideFormat() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
+        window.URL.revokeObjectURL(blobUrl);
         
         console.log('[Export] Wide format CSV downloaded:', filename);
         
@@ -1567,5 +1942,5 @@ window.closeFlowModal = closeFlowModal;
 window.saveFlow = saveFlow;
 window.exportWideFormat = exportWideFormat;
 
-console.log('✅ experiment_detail.js loaded (2024-11-16 - Wide Format Export)');
+console.log('✅ experiment_detail.js loaded (2024-12-03 - Status Management & Admin History)');
 

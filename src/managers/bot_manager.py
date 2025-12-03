@@ -157,7 +157,7 @@ class BotManager:
             del self.conversation_history[session_id]
     
     async def generate_response(self, user_message: str, session_id: str, 
-                               client_id: str) -> str:
+                               client_id: str, timeout: float = 300.0) -> str:
         """
         ユーザーメッセージに対する応答を生成
         
@@ -165,6 +165,7 @@ class BotManager:
             user_message: ユーザーのメッセージ
             session_id: セッションID
             client_id: クライアントID（ユーザー）
+            timeout: タイムアウト秒数（デフォルト: 300秒 = 5分）
             
         Returns:
             ボットの応答メッセージ
@@ -236,14 +237,26 @@ class BotManager:
             print(f"  num_gpu          : {options.get('num_gpu', 'Default (-1, all)')}")
             print(f"  num_batch        : {options.get('num_batch', 'Default (512)')}")
             print(f"\nConversation History: {len(messages) - 1} messages")
+            print(f"Timeout: {timeout}s")
             print("=" * 70 + "\n")
             
-            response = await asyncio.to_thread(
-                ollama.chat,
-                model=model,
-                messages=messages,
-                options=options
-            )
+            # タイムアウト付きで応答を生成
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        ollama.chat,
+                        model=model,
+                        messages=messages,
+                        options=options
+                    ),
+                    timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                print(f"⚠️ Response generation timed out after {timeout}s")
+                # タイムアウト時は履歴から最後のユーザーメッセージを削除（応答がないため）
+                if history and history[-1].get("role") == "user":
+                    history.pop()
+                return None  # タイムアウト時はNoneを返す
             
             bot_message = response['message']['content']
             
@@ -255,6 +268,14 @@ class BotManager:
             
             return bot_message
             
+        except asyncio.CancelledError:
+            # キャンセル時（接続切断など）
+            print(f"⚠️ [BotManager] Response generation cancelled for session {session_id[:12]}...")
+            # 履歴から最後のユーザーメッセージを削除
+            history = self.get_conversation_history(session_id)
+            if history and history[-1].get("role") == "user":
+                history.pop()
+            return None  # キャンセル時はNoneを返す
         except Exception as e:
             error_message = f"申し訳ございません。エラーが発生しました: {str(e)}"
             print(f"[BotManager] Error generating response: {e}")

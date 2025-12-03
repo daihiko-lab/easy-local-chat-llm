@@ -45,7 +45,10 @@ class ExperimentGroup(BaseModel):
     experiment_flow: Optional[List[dict]] = None  # ExperimentStepのリスト（dict形式で保存）
     
     # 🆕 参加者コード管理
-    participant_codes: dict = Field(default_factory=dict)  # {code: {"status": "unused|used|completed", "client_id": str, "session_id": str, "completed_at": str}}
+    participant_codes: dict = Field(default_factory=dict)  # {code: {"status": "unused|used|completed|invalidated", "client_id": str, "session_id": str, "completed_at": str}}
+    
+    # 🆕 管理者操作履歴
+    admin_actions: List[dict] = Field(default_factory=list)  # [{action, target, old_value, new_value, admin_note, timestamp}]
     
     def get_experiment_flow_steps(self) -> Optional[List['ExperimentStep']]:
         """実験フローをExperimentStepオブジェクトのリストとして取得"""
@@ -127,6 +130,72 @@ class ExperimentGroup(BaseModel):
         if code in self.participant_codes:
             self.participant_codes[code]["status"] = "completed"
             self.participant_codes[code]["completed_at"] = datetime.now().isoformat()
+    
+    def admin_change_code_status(self, code: str, new_status: str, admin_note: str = "") -> bool:
+        """管理者によるコード状態の変更（履歴付き）
+        
+        Args:
+            code: 参加者コード
+            new_status: 新しい状態 (unused, used, completed, invalidated)
+            admin_note: 管理者のメモ
+            
+        Returns:
+            成功したかどうか
+        """
+        if code not in self.participant_codes:
+            return False
+        
+        old_status = self.participant_codes[code]["status"]
+        if old_status == new_status:
+            return True  # 変更なし
+        
+        # 状態を更新
+        self.participant_codes[code]["status"] = new_status
+        self.participant_codes[code]["admin_modified_at"] = datetime.now().isoformat()
+        
+        # 特定の状態に応じた追加処理
+        if new_status == "completed":
+            self.participant_codes[code]["completed_at"] = datetime.now().isoformat()
+        elif new_status == "unused":
+            # unusedに戻す場合、関連情報をクリア
+            self.participant_codes[code]["client_id"] = None
+            self.participant_codes[code]["session_id"] = None
+            self.participant_codes[code]["completed_at"] = None
+        
+        # 操作履歴を追加
+        self.admin_actions.append({
+            "action": "change_code_status",
+            "target": code,
+            "old_value": old_status,
+            "new_value": new_status,
+            "admin_note": admin_note,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        return True
+    
+    def add_admin_action(self, action: str, target: str, old_value: str, new_value: str, admin_note: str = ""):
+        """管理者操作履歴を追加
+        
+        Args:
+            action: 操作の種類（例: change_experiment_status, change_code_status）
+            target: 操作対象（例: experiment, participant_code）
+            old_value: 変更前の値
+            new_value: 変更後の値
+            admin_note: 管理者のメモ
+        """
+        self.admin_actions.append({
+            "action": action,
+            "target": target,
+            "old_value": old_value,
+            "new_value": new_value,
+            "admin_note": admin_note,
+            "timestamp": datetime.now().isoformat()
+        })
+    
+    def get_admin_actions(self, limit: int = 50) -> List[dict]:
+        """管理者操作履歴を取得（最新から）"""
+        return sorted(self.admin_actions, key=lambda x: x.get("timestamp", ""), reverse=True)[:limit]
     
     def to_dict(self):
         """辞書形式に変換"""

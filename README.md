@@ -15,6 +15,15 @@
 - Ollama
 - 8GB以上のRAM推奨
 
+## 動作確認環境
+
+> ⚠️ **注意**: 本システムは以下の環境でのみ動作確認を行っています。
+> - **macOS** Safari
+> - **iOS** Safari
+> - **iPadOS** Safari
+>
+> 他のブラウザ（Chrome, Firefox等）や OS（Windows, Linux等）では動作未確認です。
+
 ## セットアップ
 
 ### 1. Ollamaのインストール

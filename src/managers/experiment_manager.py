@@ -75,7 +75,7 @@ class ExperimentManager:
         active_experiments = [exp for exp in self.get_all_experiments() if exp.status == "active"]
         for active_exp in active_experiments:
             if active_exp.experiment_id != experiment_id:
-                print(f"⏸️  Pausing experiment: {active_exp.name} ({active_exp.experiment_id})")
+                print(f"⏸️  Pausing experiment: {active_exp.name} ({active_exp.experiment_id}) [auto-pause]")
                 active_exp.status = "paused"
                 self._save_experiment(active_exp, Path(active_exp.data_directory))
         
@@ -91,8 +91,8 @@ class ExperimentManager:
             self.current_experiment = experiment
             self.current_data_dir = data_dir
             
-            print(f"✅ Experiment activated: {experiment.name} ({experiment_id})")
-            print(f"📂 Using data directory: {data_dir.name}")
+            print(f"✅ Experiment started: {experiment.name} ({experiment_id})")
+            print(f"📂 Data directory: {data_dir.name}")
     
     def end_experiment(self, experiment_id: str):
         """実験を終了状態にする"""
@@ -102,6 +102,7 @@ class ExperimentManager:
             experiment.ended_at = datetime.now().isoformat()
             data_dir = Path(experiment.data_directory)
             self._save_experiment(experiment, data_dir)
+            print(f"⏹ Experiment ended: {experiment.name} ({experiment_id})")
     
     def pause_experiment(self, experiment_id: str):
         """実験を一時中断状態にする"""
@@ -110,20 +111,23 @@ class ExperimentManager:
             experiment.status = "paused"
             data_dir = Path(experiment.data_directory)
             self._save_experiment(experiment, data_dir)
+            print(f"⏸️  Experiment paused: {experiment.name} ({experiment_id})")
     
     def resume_experiment(self, experiment_id: str):
-        """実験を再開する（他のアクティブな実験は自動的に一時停止）"""
+        """実験を再開する（paused または completed から active に戻す）
+        他のアクティブな実験は自動的に一時停止"""
         # 他のアクティブな実験を一時停止
         active_experiments = [exp for exp in self.get_all_experiments() if exp.status == "active"]
         for active_exp in active_experiments:
             if active_exp.experiment_id != experiment_id:
-                print(f"⏸️  Pausing experiment: {active_exp.name} ({active_exp.experiment_id})")
+                print(f"⏸️  Pausing experiment: {active_exp.name} ({active_exp.experiment_id}) [auto-pause]")
                 active_exp.status = "paused"
                 self._save_experiment(active_exp, Path(active_exp.data_directory))
         
-        # 指定された実験を再開
+        # 指定された実験を再開（paused または completed から）
         experiment = self.get_experiment(experiment_id)
-        if experiment and experiment.status == "paused":
+        if experiment and experiment.status in ["paused", "completed"]:
+            old_status = experiment.status
             experiment.status = "active"
             data_dir = Path(experiment.data_directory)
             self._save_experiment(experiment, data_dir)
@@ -132,8 +136,9 @@ class ExperimentManager:
             self.current_experiment = experiment
             self.current_data_dir = data_dir
             
-            print(f"▶️  Experiment resumed: {experiment.name} ({experiment_id})")
-            print(f"📂 Using data directory: {data_dir.name}")
+            action = "reopened" if old_status == "completed" else "resumed"
+            print(f"▶️  Experiment {action}: {experiment.name} ({experiment_id})")
+            print(f"📂 Data directory: {data_dir.name}")
     
     def delete_experiment(self, experiment_id: str) -> bool:
         """実験を削除する"""
@@ -412,4 +417,3 @@ class ExperimentManager:
             print(f"[ExperimentManager] ♾️  No session limit set (unlimited)")
         
         return True, ""
-

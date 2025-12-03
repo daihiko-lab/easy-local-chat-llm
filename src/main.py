@@ -12,8 +12,68 @@ import secrets
 import uuid
 import asyncio
 import socket
+import logging
+import sys
 from datetime import datetime
 from pathlib import Path
+
+# ========== Logging Setup ==========
+# ログディレクトリを作成
+log_dir = Path("data/logs")
+log_dir.mkdir(parents=True, exist_ok=True)
+
+# 古いログファイルを削除（7日以上前）
+LOG_RETENTION_DAYS = 7
+for old_log in log_dir.glob("server_*.log"):
+    try:
+        # ファイル名から日付を抽出
+        date_str = old_log.stem.replace("server_", "")
+        log_date = datetime.strptime(date_str, "%Y%m%d")
+        if (datetime.now() - log_date).days > LOG_RETENTION_DAYS:
+            old_log.unlink()
+            print(f"[Log] Deleted old log: {old_log.name}")
+    except (ValueError, OSError):
+        pass
+
+# ログファイル名（日付ベース）
+log_file = log_dir / f"server_{datetime.now().strftime('%Y%m%d')}.log"
+
+# ファイルハンドラーを作成
+file_handler = logging.FileHandler(log_file, encoding='utf-8')
+file_handler.setFormatter(logging.Formatter('%(asctime)s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+
+# ロギング設定（ルートロガー）
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        file_handler,
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# uvicornのログもファイルに出力
+for uvicorn_logger_name in ["uvicorn", "uvicorn.access", "uvicorn.error"]:
+    uvicorn_logger = logging.getLogger(uvicorn_logger_name)
+    uvicorn_logger.addHandler(file_handler)
+
+# printをロガーにリダイレクト
+class LoggerWriter:
+    def __init__(self, logger_func):
+        self.logger_func = logger_func
+        self.buffer = ''
+    
+    def write(self, message):
+        if message and message.strip():
+            self.logger_func(message.rstrip())
+    
+    def flush(self):
+        pass
+
+# 標準出力をログにも出力
+sys.stdout = LoggerWriter(logger.info)
 
 from .models.session import Session, SurveyResponse
 from .models.message import Message
@@ -144,11 +204,11 @@ def generate_admin_token() -> str:
 def verify_admin_token(token: Optional[str]) -> bool:
     """管理者トークンを検証"""
     if not token:
-        print(f"[Auth] ❌ No token")
         return False
     
     is_valid = admin_tokens.get(token, False)
-    print(f"[Auth] {'✅' if is_valid else '❌'} {token[:12]}")
+    if not is_valid:
+        print(f"[Auth] Invalid token: {token[:12]}...")
     return is_valid
 
 # アプリケーション起動時の処理
@@ -203,7 +263,17 @@ async def startup_event():
         import ollama
         ollama_client = ollama
         models = ollama.list()
-        available_models = [m['name'] for m in models.get('models', [])]
+        
+        # ollama-python 0.4.x対応: ListResponseオブジェクトまたは辞書形式
+        if hasattr(models, 'models'):
+            # 新形式: ListResponseオブジェクト
+            available_models = [m.model for m in models.models]
+        elif isinstance(models, dict) and 'models' in models:
+            # 旧形式: 辞書形式
+            available_models = [m.get('name', m.get('model', '')) for m in models['models']]
+        else:
+            available_models = []
+        
         if available_models:
             print(f"✓ Ollama is running with {len(available_models)} model(s) available:")
             for model_name in available_models[:5]:  # Show first 5 models
@@ -362,12 +432,20 @@ async def get_server_ip():
 @app.post("/api/login")
 async def login(participant_code: str = Form(...), participant_password: str = Form(...)):
     """ログイン処理：参加者コードとパスワードを検証してセッショントークンを生成"""
-    # アクティブな実験の存在をチェック
+    # アクティブな実験の存在をチェック（最新データをファイルから再読み込み）
     active_exp = experiment_manager.get_active_experiment()
     if not active_exp:
         return JSONResponse(
             status_code=400,
             content={"error": "No active experiment available"}
+        )
+    
+    # 最新のparticipant_codesを取得するためにファイルから再読み込み
+    active_exp = experiment_manager.reload_experiment(active_exp.experiment_id)
+    if not active_exp:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Failed to load experiment data"}
         )
     
     # 🆕 参加者コードを検証
@@ -568,6 +646,10 @@ async def websocket_endpoint(websocket: WebSocket):
                     active_exp.mark_code_used(participant_code, base_client_id, session_id)
                     from pathlib import Path
                     experiment_manager._save_experiment(active_exp, Path(active_exp.data_directory))
+                    
+                    # メモリキャッシュを更新
+                    experiment_manager.reload_experiment(active_exp.experiment_id)
+                    print(f"[WebSocket] Code '{participant_code}' marked as 'used'")
                 
                 # トークンを使用済みにする（1回のみ使用可能）
                 del session_tokens[token]
@@ -674,6 +756,25 @@ async def websocket_endpoint(websocket: WebSocket):
                             client_id=client_id
                         )
                         
+                        # タイムアウトまたはキャンセル時はNoneが返される
+                        if bot_response is None:
+                            print(f"[Bot] Response generation was cancelled or timed out for session {session_id[:12]}...")
+                            # 中断通知を送信（エラーではなく情報として）
+                            interrupt_message = {
+                                "type": "system",
+                                "client_id": "system",
+                                "internal_id": "system",
+                                "message": "（応答生成が中断されました。再度メッセージを送信してください）",
+                                "timestamp": datetime.now().isoformat(),
+                            }
+                            # クライアントがまだ接続中なら通知
+                            if client_id in active_connections:
+                                try:
+                                    await active_connections[client_id].send_json(interrupt_message)
+                                except Exception:
+                                    pass  # 接続切れの場合は無視
+                            continue  # 次のメッセージ処理へ
+                        
                         # ボットのメッセージを作成・保存
                         bot_message_obj = Message(
                             session_id=session_id,
@@ -698,6 +799,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         }
                         await broadcast_message(bot_broadcast, target_session_id=session_id)
                         
+                    except asyncio.CancelledError:
+                        print(f"[Bot] Response cancelled for session {session_id[:12]}...")
+                        # キャンセル時は何もしない（接続が切れている可能性が高い）
                     except Exception as e:
                         print(f"Error generating bot response: {e}")
             elif data["type"] == "join":
@@ -964,6 +1068,80 @@ async def delete_session(session_id: str, admin_token: Optional[str] = Cookie(No
     else:
         raise HTTPException(status_code=404, detail="Session not found")
 
+@app.put("/api/sessions/{session_id}/status")
+async def change_session_status(session_id: str, request: Request, admin_token: Optional[str] = Cookie(None)):
+    """セッションの状態を変更（管理者操作）"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        data = await request.json()
+        new_status = data.get('status')
+        admin_note = data.get('note', '')
+        
+        # 有効な状態かチェック
+        valid_statuses = ['active', 'resumed', 'paused', 'completed', 'cancelled', 'abandoned', 'ended']
+        if new_status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}")
+        
+        session = session_manager.load_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        old_status = session.status
+        
+        # 状態を変更（履歴付き）
+        # 「resumed」はそのまま保存（実質的にはactiveと同じ扱いだが、履歴で区別可能）
+        session.change_status(new_status, changed_by="admin", note=admin_note)
+        session_manager.update_session(session)
+        
+        print(f"[Admin] Session '{session_id}' status changed: {old_status} -> {new_status}" + (f" (note: {admin_note})" if admin_note else ""))
+        
+        # セッション終了時は接続中のクライアントに通知
+        if new_status in ['ended', 'cancelled', 'completed']:
+            session_end_message = {
+                "type": "session_end",
+                "internal_id": "system",
+                "message": f"This session has been {new_status} by admin.",
+                "timestamp": datetime.now().isoformat()
+            }
+            clients_to_notify = [cid for cid, sid in client_sessions.items() if sid == session_id]
+            for cid in clients_to_notify:
+                if cid in active_connections:
+                    try:
+                        await active_connections[cid].send_json(session_end_message)
+                    except Exception as e:
+                        print(f"Error notifying client {cid}: {e}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "session_id": session_id,
+            "old_status": old_status,
+            "new_status": new_status
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Admin] Error changing session status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/sessions/{session_id}/status_history")
+async def get_session_status_history(session_id: str, admin_token: Optional[str] = Cookie(None)):
+    """セッションの状態変更履歴を取得"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    session = session_manager.load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    return JSONResponse(content={
+        "session_id": session_id,
+        "current_status": session.status,
+        "status_history": session.status_history
+    })
+
 @app.post("/api/sessions/new")
 async def create_new_session(end_previous: bool = True,
                             admin_token: Optional[str] = Cookie(None)):
@@ -1102,8 +1280,18 @@ async def create_experiment(request: Request, admin_token: Optional[str] = Cooki
         raise HTTPException(status_code=401, detail="Unauthorized")
     
     data = await request.json()
+    name = data.get('name', 'New Experiment')
+    
+    # 実験名のバリデーション（英数字、スペース、アンダースコア、ハイフン、ドットのみ）
+    import re
+    if not re.match(r'^[a-zA-Z0-9 _\-\.]+$', name):
+        raise HTTPException(
+            status_code=400, 
+            detail="Experiment name must contain only English letters, numbers, spaces, underscores, hyphens, and dots"
+        )
+    
     experiment = experiment_manager.create_experiment(
-        name=data.get('name', 'New Experiment'),
+        name=name,
         description=data.get('description', ''),
         researcher=data.get('researcher', ''),
         slug=data.get('slug', None)  # オプショナル: 指定されなければ自動生成
@@ -1271,6 +1459,75 @@ async def delete_participant_code(experiment_id: str, code: str, admin_token: Op
         raise
     except Exception as e:
         print(f"[Codes] ❌ Error deleting code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/experiments/{experiment_id}/codes/{code}/status")
+async def change_code_status(experiment_id: str, code: str, request: Request, admin_token: Optional[str] = Cookie(None)):
+    """参加者コードの状態を変更（管理者操作）"""
+    if not verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        data = await request.json()
+        new_status = data.get('status')
+        admin_note = data.get('note', '')
+        
+        # 有効な状態かチェック
+        valid_statuses = ['unused', 'used', 'completed', 'invalidated']
+        if new_status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}")
+        
+        experiment = experiment_manager.get_experiment(experiment_id)
+        if not experiment:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        
+        if code not in experiment.participant_codes:
+            raise HTTPException(status_code=404, detail="Code not found")
+        
+        old_status = experiment.participant_codes[code]["status"]
+        
+        if old_status == new_status:
+            return JSONResponse(content={
+                "status": "success",
+                "code": code,
+                "old_status": old_status,
+                "new_status": new_status,
+                "message": "No change"
+            })
+        
+        # 状態を変更
+        experiment.participant_codes[code]["status"] = new_status
+        if new_status == "completed":
+            from datetime import datetime
+            experiment.participant_codes[code]["completed_at"] = datetime.now().isoformat()
+        elif new_status == "unused":
+            experiment.participant_codes[code]["client_id"] = None
+            experiment.participant_codes[code]["session_id"] = None
+            experiment.participant_codes[code]["completed_at"] = None
+        
+        # 保存
+        from pathlib import Path
+        experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
+        
+        # ログファイルに記録
+        experiment_manager.log_admin_action(experiment_id, "change_code_status", code, old_status, new_status, admin_note)
+        
+        # 実験を再読み込みしてメモリ上のキャッシュを更新
+        experiment_manager.reload_experiment(experiment_id)
+        
+        print(f"[Admin] Code '{code}' status changed: {old_status} -> {new_status}" + (f" (note: {admin_note})" if admin_note else ""))
+        
+        return JSONResponse(content={
+            "status": "success",
+            "code": code,
+            "old_status": old_status,
+            "new_status": new_status
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Admin] Error changing code status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/experiments/{experiment_id}/start")
@@ -1513,17 +1770,33 @@ async def submit_survey_response(session_id: str, request: Request):
 async def get_current_step(session_id: str, client_id: str = None):
     """現在のステップ情報を取得"""
     try:
-        # セッションを取得
+        # セッションを取得（最新データ）
         session = session_manager.load_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # 🆕 完了済み参加者チェック
+        # 完了済み参加者チェック（セッションレベル）
         if client_id and session.is_participant_completed(client_id):
             return JSONResponse(content={
                 "already_completed": True,
                 "message": "You have already completed this experiment. Thank you for your participation!"
             })
+        
+        # 完了済み参加者チェック（実験コードレベル）
+        if session.participant_code and session.experiment_id:
+            # 実験データを最新で取得
+            experiment = experiment_manager.reload_experiment(session.experiment_id)
+            if experiment:
+                code_status = experiment.get_code_status(session.participant_code)
+                if code_status == "completed":
+                    # セッションの完了状態も同期（整合性を保つ）
+                    if client_id and not session.is_participant_completed(client_id):
+                        session.mark_participant_completed(client_id)
+                        session_manager.update_session(session)
+                    return JSONResponse(content={
+                        "already_completed": True,
+                        "message": "You have already completed this experiment. Thank you for your participation!"
+                    })
         
         # 実験レベルのフローを取得（フローベースシステム）
         if not session.experiment_id:
@@ -1597,10 +1870,19 @@ async def advance_step(session_id: str, request: Request):
         if not client_id:
             raise HTTPException(status_code=400, detail="client_id is required")
         
-        # セッションを取得
+        # セッションを取得（最新データ）
         session = session_manager.load_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
+        
+        # 完了済み参加者チェック
+        if session.is_participant_completed(client_id):
+            return JSONResponse(content={
+                "status": "error",
+                "already_completed": True,
+                "completed": True,
+                "message": "You have already completed this experiment"
+            })
         
         # 実験を取得（フローベースシステム）
         if not session.experiment_id:
@@ -1650,6 +1932,10 @@ async def advance_step(session_id: str, request: Request):
                     experiment.mark_code_completed(session.participant_code)
                     from pathlib import Path
                     experiment_manager._save_experiment(experiment, Path(experiment.data_directory))
+                    
+                    # メモリキャッシュを更新
+                    experiment_manager.reload_experiment(session.experiment_id)
+                    print(f"[Flow] Code '{session.participant_code}' marked as 'completed'")
             
             # 実験完了を表示
             print_section_header("🎉 PARTICIPANT COMPLETED EXPERIMENT")
@@ -2125,10 +2411,18 @@ async def export_experiment_sessions_data(experiment_id: str, format: str = "csv
 
 @app.post("/api/experiments/{experiment_id}/export/wide")
 async def export_experiment_wide_format(experiment_id: str,
+                                        excel_format: bool = False,
+                                        missing_value: str = 'blank',
+                                        include_codebook: bool = False,
                                         admin_token: Optional[str] = Cookie(None)):
     """
     実験データをワイド形式CSVでエクスポート（統計分析用）
     1行 = 1参加者、各質問が列になる
+    
+    Args:
+        excel_format: Trueの場合、UTF-8 BOM付きでExcel対応形式で出力
+        missing_value: 欠損値の表現方法 ('blank'=空白, 'NA'=NA, 'comma'=空セル, 'dot'=ピリオド)
+        include_codebook: Trueの場合、コードブック付きZIPで出力（全て数値コード化）
     """
     if not verify_admin_token(admin_token):
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -2137,21 +2431,49 @@ async def export_experiment_wide_format(experiment_id: str,
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        print(f"[Export] Exporting wide format CSV for experiment {experiment_id}")
+        format_type = "Excel" if excel_format else "Standard"
         
-        content = data_exporter.export_experiment_wide_format_csv(
-            experiment_id, session_manager, message_store, experiment_manager
-        )
-        
-        filename = f"wide_format_{experiment_id}_{timestamp}.csv"
-        
-        print(f"[Export] Wide format CSV generated: {len(content)} bytes")
-        
-        return Response(
-            content=content,
-            media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
+        if include_codebook:
+            # コードブック付きZIPで出力
+            print(f"[Export] Exporting wide format with codebook ({format_type}, missing={missing_value}) for experiment {experiment_id}")
+            
+            zip_content = data_exporter.export_experiment_wide_format_with_codebook(
+                experiment_id, session_manager, message_store, experiment_manager,
+                excel_format=excel_format,
+                missing_value=missing_value
+            )
+            
+            filename = f"wide_format_{experiment_id}_{timestamp}.zip"
+            print(f"[Export] Wide format ZIP generated: {len(zip_content)} bytes")
+            
+            return Response(
+                content=zip_content,
+                media_type="application/zip",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        else:
+            # 通常のCSV出力
+            print(f"[Export] Exporting wide format CSV ({format_type}, missing={missing_value}) for experiment {experiment_id}")
+            
+            content = data_exporter.export_experiment_wide_format_csv(
+                experiment_id, session_manager, message_store, experiment_manager,
+                excel_format=excel_format,
+                missing_value=missing_value
+            )
+            
+            # Excel形式の場合はファイル名にexcelを付与
+            if excel_format:
+                filename = f"wide_format_{experiment_id}_{timestamp}_excel.csv"
+            else:
+                filename = f"wide_format_{experiment_id}_{timestamp}.csv"
+            
+            print(f"[Export] Wide format CSV generated: {len(content)} bytes")
+            
+            return Response(
+                content=content,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
         
     except Exception as e:
         print(f"[Export] Error generating wide format CSV: {e}")

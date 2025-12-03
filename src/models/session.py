@@ -35,8 +35,13 @@ class Session(BaseModel):
     session_id: str
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     ended_at: Optional[str] = None
-    status: str = "active"  # active | ended
+    # 状態: active(進行中), paused(一時停止), completed(正常完了), 
+    #       cancelled(管理者によるキャンセル), abandoned(参加者離脱), ended(終了/旧形式互換)
+    status: str = "active"
     participants: List[str] = Field(default_factory=list)
+    
+    # 状態変更履歴
+    status_history: List[Dict[str, Any]] = Field(default_factory=list)  # [{status, changed_at, changed_by, note}]
     total_messages: int = 0
     last_activity: str = Field(default_factory=lambda: datetime.now().isoformat())  # 最終アクティビティ時刻
     metadata: SessionMetadata = Field(default_factory=SessionMetadata)
@@ -94,8 +99,39 @@ class Session(BaseModel):
     
     def end_session(self):
         """セッションを終了"""
-        self.status = "ended"
-        self.ended_at = datetime.now().isoformat()
+        self.change_status("ended", changed_by="system", note="Session ended")
+    
+    def change_status(self, new_status: str, changed_by: str = "system", note: str = ""):
+        """セッション状態を変更（履歴付き）
+        
+        Args:
+            new_status: 新しい状態 (active, paused, completed, cancelled, abandoned, ended)
+            changed_by: 変更者 (admin, system, participant)
+            note: 変更理由メモ
+        """
+        old_status = self.status
+        if old_status == new_status:
+            return
+        
+        self.status = new_status
+        
+        # 終了系の状態の場合、ended_atを設定
+        if new_status in ["ended", "completed", "cancelled", "abandoned"]:
+            self.ended_at = datetime.now().isoformat()
+        elif new_status == "active" and self.ended_at:
+            # アクティブに戻す場合、ended_atをクリア
+            self.ended_at = None
+        
+        # 履歴に追加
+        self.status_history.append({
+            "old_status": old_status,
+            "new_status": new_status,
+            "changed_at": datetime.now().isoformat(),
+            "changed_by": changed_by,
+            "note": note
+        })
+        
+        self.update_activity()
     
     def add_survey_response(self, client_id: str, responses: List[SurveyResponse]):
         """アンケート回答を追加"""
